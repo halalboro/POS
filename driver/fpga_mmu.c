@@ -146,9 +146,11 @@ void fpga_notify_handler(struct work_struct *work)
         dbg_info("Dropped notify event because there is no recpient\n");
         return;
     }
-
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,8,0)
+    eventfd_signal(user_notifier[d->id][irq_not->cpid]);
+#else 
     eventfd_signal(user_notifier[d->id][irq_not->cpid], irq_not->notval);
-
+#endif
     kfree(irq_not);
 }
 

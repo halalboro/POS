@@ -36,11 +36,13 @@ endif()
 if(EXAMPLE STREQUAL "streaming_server")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/streaming_service/server")
     message("** Example: Streaming service - Server (Coyote daemon)")
+    include_directories(${TARGET_DIR}/../include ${TARGET_DIR}/include)
 endif()
 
 if(EXAMPLE STREQUAL "streaming_client")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/streaming_service/client")
     message("** Example: Streaming service - Client")
+    include_directories(${TARGET_DIR}/../include)
 endif()
 
 if(EXAMPLE STREQUAL "multithreading")
