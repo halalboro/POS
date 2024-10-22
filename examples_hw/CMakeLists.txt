@@ -243,3 +243,22 @@ if(EXAMPLE STREQUAL "perf_fpga")
 
     create_hw()
 endif()
+
+# SVM 
+if(EXAMPLE STREQUAL "svm_speech")
+    message("** SVM Speech Recognition Example on U280")
+    set(SHELL_PROBE 1)            # Enable ILA for debug
+    set(N_REGIONS 1)              # Single vFPGA region
+    set(EN_STRM 1)               # Enable streaming interfaces
+    set(N_STRM_AXI 1)            # One AXI-Stream interface pair
+    set(EN_MEM 0)                # No memory interface needed
+    set(EN_PR 0)                 # No partial reconfiguration
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/svm_speech"    # Load SVM application
+    )
+
+    create_hw()
+endif()
