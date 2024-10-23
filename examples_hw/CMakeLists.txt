@@ -26,7 +26,7 @@ if(EXAMPLE STREQUAL "static")
     set(N_REGIONS 4)
     set(EN_STRM 1)
     set(EN_MEM 1)
-    set(HBM_SPLIT 1)
+    set(HBM_SPLIT 0)
 
     validation_checks_hw()
 
