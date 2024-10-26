@@ -1,0 +1,50 @@
+# make.tcl.in
+open_project ${PROJECT_NAME}_prj
+open_solution "solution1"
+set_part ${FPGA_PART}
+create_clock -period ${CLOCK_PERIOD} -name default
+set_top ${PROJECT_NAME} 
+
+# Add source files with proper extension
+add_files {           
+    ${CMAKE_CURRENT_SOURCE_DIR}/CompactClassificationECOC.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtGetInf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtGetNaN.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/rt_nonfinite.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_0.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_data.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_initialize.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_terminate.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/MW_target_hardware_resources.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/CompactClassificationECOC.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtGetInf.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtGetNaN.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/rt_nonfinite.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/rtwtypes.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_0.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_data.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_initialize.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_internal_types.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_terminate.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/svm_speech_30_types.h
+}
+
+# Add testbench files
+add_files -tb -cflags "-x c" ${CMAKE_CURRENT_SOURCE_DIR}/main.c
+add_files -tb ${CMAKE_CURRENT_SOURCE_DIR}/main.h
+
+set command [lindex $argv 2]
+if {$command == "synthesis"} {
+   csynth_design
+} elseif {$command == "csim"} {
+   csim_design
+} elseif {$command == "ip"} {
+   export_design -format ip_catalog -ipname "svm_speech_30_0" -display_name "svm_speech_30_0" -vendor "panda" -version "1.0"
+} elseif {$command == "services"} {
+   file mkdir ${IPREPO_DIR}
+   file delete -force ${IPREPO_DIR}/${PROJECT_NAME}
+   file copy -force ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}_prj/solution1/impl/ip ${IPREPO_DIR}/${PROJECT_NAME}/
+} else {
+   puts "No valid command specified. Use vivado_hls -f make.tcl <synthesis|csim|ip> ."
+}
+exit
