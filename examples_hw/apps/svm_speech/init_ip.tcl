@@ -1,27 +1,23 @@
-# Create IP repository directory
-#file mkdir $build_dir/iprepo
-
-# Extract the SVM IP to repository
-#set cmd "exec unzip $hw_dir/ip/xilinx_com_hls_svm_speech_30_1_0*.zip -d $build_dir/iprepo/svm_ip"
-#eval $cmd
-
-# Extract the FFT2SVM IP to repository
-#set cmd "exec unzip $hw_dir/ip/xilinx_com_hls_fft2svm_1_0*.zip -d $build_dir/iprepo/fft2svm_ip"
-#eval $cmd
-
-#update_ip_catalog -rebuild
-
 # Create Data Width Converter IPs
 create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name dwidth_converter_512_32
 set_property -dict [list \
     CONFIG.S_TDATA_NUM_BYTES {64} \
     CONFIG.M_TDATA_NUM_BYTES {4} \
+    CONFIG.TID_WIDTH {6} \
+    CONFIG.HAS_TLAST {1} \
+    CONFIG.HAS_TKEEP {1} \
+    CONFIG.Component_Name {dwidth_converter_512_32} \
 ] [get_ips dwidth_converter_512_32]
 
 create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name dwidth_converter_32_512
 set_property -dict [list \
     CONFIG.S_TDATA_NUM_BYTES {4} \
     CONFIG.M_TDATA_NUM_BYTES {64} \
+    CONFIG.TID_WIDTH {6} \ 
+    CONFIG.HAS_TLAST {1} \ 
+    CONFIG.HAS_TKEEP {1} \ 
+    CONFIG.HAS_MI_TKEEP {1} \ 
+    CONFIG.Component_Name {dwidth_converter_32_512}\
 ] [get_ips dwidth_converter_32_512]
 
 # Create AXI Crossbar (for SVM control)
@@ -31,6 +27,7 @@ set_property -dict [list \
     CONFIG.NUM_MI {1} \
     CONFIG.PROTOCOL {AXI4LITE} \
     CONFIG.CONNECTIVITY_MODE {SASD} \
+    CONFIG.Component_Name {axi_crossbar_0} \
 ] [get_ips axi_crossbar_0]
 
 # Create Clock Wizard
@@ -46,6 +43,7 @@ set_property -dict [list \
     CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {100.000} \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {10.000} \
     CONFIG.MMCM_CLKOUT1_DIVIDE {120} \
+    CONFIG.Component_Name {clk_wiz_0} \
 ] [get_ips clk_wiz_0]
 
 # Create Processor System Reset modules
@@ -56,6 +54,7 @@ set_property -dict [list \
     CONFIG.RESET_BOARD_INTERFACE {Custom} \
     CONFIG.C_AUX_RESET_HIGH {0} \
     CONFIG.C_EXT_RESET_HIGH {1} \
+    CONFIG.Component_Name {proc_sys_reset_1} \
 ] [get_ips proc_sys_reset_1]
 
 # For 10MHz clock domain
@@ -65,6 +64,7 @@ set_property -dict [list \
     CONFIG.RESET_BOARD_INTERFACE {Custom} \
     CONFIG.C_AUX_RESET_HIGH {0} \
     CONFIG.C_EXT_RESET_HIGH {1} \
+    CONFIG.Component_Name {proc_sys_reset_0} \
 ] [get_ips proc_sys_reset_0]
 
 # Create AXI-Stream Clock Converter for FFT2SVM to SVM (100MHz -> 10MHz)
@@ -74,6 +74,7 @@ set_property -dict [list \
     CONFIG.HAS_TKEEP {1} \
     CONFIG.SYNCHRONIZATION_STAGES {3} \
     CONFIG.HAS_TLAST {1} \
+    CONFIG.Component_Name {axis_clock_converter_1} \
 ] [get_ips axis_clock_converter_1]
 
 # Create AXI-Stream Clock Converter for SVM to Host (10MHz -> 100MHz)
@@ -83,19 +84,8 @@ set_property -dict [list \
     CONFIG.HAS_TKEEP {1} \
     CONFIG.SYNCHRONIZATION_STAGES {3} \
     CONFIG.HAS_TLAST {1} \
+    CONFIG.Component_Name {axis_clock_converter_0} \
 ] [get_ips axis_clock_converter_0]
-
-# Create FFT2SVM IP instance (running at 100MHz)
-#set fft2svm_0 [create_ip -name fft2svm -vendor xilinx.com -library hls -version 1.0 -module_name fft2svm_0]
-#set_property -dict { 
-#    GENERATE_SYNTH_CHECKPOINT {1}
-#} $fft2svm_0
-
-# Create SVM IP instance
-#set svm_speech_30_0 [create_ip -name svm_speech_30 -vendor xilinx.com -library hls -version 1.0 -module_name svm_speech_30_0]
-#set_property -dict { 
-#    GENERATE_SYNTH_CHECKPOINT {1}
-#} $svm_speech_30_0
 
 # Create FFT IP
 create_ip -name xfft -vendor xilinx.com -library ip -version 9.1 -module_name xfft_0
@@ -106,6 +96,7 @@ set_property -dict [list \
     CONFIG.input_width {32} \
     CONFIG.output_ordering {natural_order} \
     CONFIG.aresetn {true} \
+    CONFIG.Component_Name {xfft_0} \
 ] [get_ips xfft_0]
 
 # Create Constant blocks for FFT configuration
@@ -113,12 +104,14 @@ create_ip -name xlconstant -vendor xilinx.com -library ip -version 1.1 -module_n
 set_property -dict [list \
     CONFIG.CONST_WIDTH {16} \
     CONFIG.CONST_VAL {1} \
+    CONFIG.Component_Name {xlconstant_0} \
 ] [get_ips xlconstant_0]
 
 create_ip -name xlconstant -vendor xilinx.com -library ip -version 1.1 -module_name xlconstant_1
 set_property -dict [list \
     CONFIG.CONST_WIDTH {1} \
     CONFIG.CONST_VAL {1} \
+    CONFIG.Component_Name {xlconstant_1} \
 ] [get_ips xlconstant_1]
 
 # Create ILA for Debug

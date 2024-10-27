@@ -1,22 +1,20 @@
 /**
- * VFPGA TOP
- *
+ * VFPGA Top Module
  * 
+ * This module implements the top level of the VFPGA design, containing:
+ * - FFT processing pipeline
+ * - SVM classification
+ * - Clock domain crossing infrastructure
+ * - Debug logic
+ *
+ * Clock Domains:
+ * - aclk: Input clock
+ * - clk_100M: Main processing clock (100 MHz)
+ * - clk_10M: SVM processing clock (10 MHz)
  */
 import lynxTypes::*;
 
 module vfpga_top (
-    axi_intf.s          axi_ctrl,
-    axis_intf.s         axis_host_recv [N_STRM_AXI],
-    axis_intf.m         axis_host_send [N_STRM_AXI],
-    axis_intf.s         axis_card_recv [N_STRM_AXI],
-    axis_intf.m         axis_card_send [N_STRM_AXI],
-    metaIntf.m          notify,
-    metaIntf.m          sq_rd,
-    metaIntf.m          sq_wr,
-    metaIntf.s          cq_rd,
-    metaIntf.s          cq_wr,
-    
     input  logic        aclk,
     input  logic        aresetn
 );
@@ -29,42 +27,32 @@ module vfpga_top (
     logic rst_n_10M;
     
     // Internal AXI Stream interfaces
-    AXI4SR axis_sink_int[N_STRM_AXI]();
-    AXI4SR axis_src_int[N_STRM_AXI]();
+    AXI4SR axis_sink [N_STRM_AXI] ();
+    AXI4SR axis_src [N_STRM_AXI] ();
 
     // Register slices for host interfaces
     for (genvar i = 0; i < N_STRM_AXI; i++) begin
-        axisr_reg inst_reg_sink_0 (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_host_recv[i]), .m_axis(axis_sink_int[i]));
-        axisr_reg inst_reg_src_0 (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_src_int[i]), .m_axis(axis_host_send[i]));
+        axisr_reg inst_reg_sink (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_host_recv[i]), .m_axis(axis_sink[i]));
+        axisr_reg inst_reg_src (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_src[i]), .m_axis(axis_host_send[i]));
     end
     
+    //Dwidth to FFT    
+    AXI4SR axis_host_recv_512 ();
+    
+    //Clock Converter to Dwidth
+    AXI4SR axis_host_send_512 ();
+    
     // FFT to FFT2SVM signals (100MHz domain)
-    logic [63:0] fft_tdata;
-    logic [7:0]  fft_tkeep;
-    logic        fft_tvalid;
-    logic        fft_tready;
-    logic        fft_tlast;
+    AXI4SR fft ();
     
     // FFT2SVM to Clock Converter signals (100MHz domain)
-    logic [31:0] fft2svm_tdata;
-    logic [3:0]  fft2svm_tkeep;
-    logic        fft2svm_tvalid;
-    logic        fft2svm_tready;
-    logic        fft2svm_tlast;
+    AXI4SR fft2svm ();
     
     // Clock Converter to SVM signals (10MHz domain)
-    logic [31:0] svm_in_tdata;
-    logic [3:0]  svm_in_tkeep;
-    logic        svm_in_tvalid;
-    logic        svm_in_tready;
-    logic        svm_in_tlast;
-    
+    AXI4SR svm_in ();
+   
     // SVM to final Clock Converter signals (10MHz domain)
-    logic [31:0] svm_out_tdata;
-    logic [3:0]  svm_out_tkeep; 
-    logic        svm_out_tvalid;
-    logic        svm_out_tready;
-    logic        svm_out_tlast;
+    AXI4SR svm_out ();
     
     
     // Add constant signals for FFT
@@ -75,23 +63,11 @@ module vfpga_top (
     assign xlconstant_1_dout = 1'b1;
     
     // Initialize tkeep signals to all valid
-    assign fft_tkeep = 8'hFF;      // 64-bit data path
-    assign fft2svm_tkeep = 4'hF;   // 32-bit data path
-    assign svm_in_tkeep = 4'hF;    // 32-bit data path
-    assign svm_out_tkeep = 4'hF;   // 32-bit data path
-    
-    logic        axis_host_recv_512_tvalid;
-    logic        axis_host_recv_512_tready;
-    logic [511:0] axis_host_recv_512_tdata;
-    logic [63:0]  axis_host_recv_512_tkeep;
-    logic        axis_host_recv_512_tlast;
-
-    logic        axis_host_send_512_tvalid;
-    logic        axis_host_send_512_tready;
-    logic [511:0] axis_host_send_512_tdata;
-    logic [63:0]  axis_host_send_512_tkeep;
-    logic        axis_host_send_512_tlast;
-    
+    assign fft.tkeep = 8'hFF;      // 64-bit data path
+    assign fft2svm.tkeep = 4'hF;   // 32-bit data path
+    assign svm_in.tkeep = 4'hF;    // 32-bit data path
+    assign svm_out.tkeep = 4'hF;   // 32-bit data path
+	
     
     // Clock wizard instance
     clk_wiz_0 inst_clk_wiz (
@@ -121,45 +97,42 @@ module vfpga_top (
         .peripheral_aresetn(rst_n_10M)
     );
     
-    // Width converter: 512->32 for FFT input
+    // I/O 
+    for(genvar i = 0; i < N_STRM_AXI; i++) begin
     dwidth_converter_512_32 inst_dwidth_recv (
         .aclk(clk_100M),
         .aresetn(rst_n_100M),
-        
-        // From host (512-bit)
-        .s_axis_tvalid(axis_sink_int[0].tvalid),
-        .s_axis_tready(axis_sink_int[0].tready),
-        .s_axis_tdata(axis_sink_int[0].tdata),
-        .s_axis_tkeep(axis_sink_int[0].tkeep),
-        .s_axis_tlast(axis_sink_int[0].tlast),
-        
-        // To FFT (32-bit)
-        .m_axis_tvalid(axis_host_recv_32_tvalid),
-        .m_axis_tready(axis_host_recv_32_tready),
-        .m_axis_tdata(axis_host_recv_32_tdata),
-        .m_axis_tkeep(axis_host_recv_32_tkeep),
-        .m_axis_tlast(axis_host_recv_32_tlast)
+        .s_axis_tvalid(axis_sink[i].tvalid),
+        .s_axis_tready(axis_sink[i].tready),
+        .s_axis_tdata (axis_sink[i].tdata),
+        .s_axis_tkeep (axis_sink[i].tkeep),
+        .s_axis_tlast (axis_sink[i].tlast),
+        .s_axis_tid   (axis_sink[i].tid),
+        .m_axis_tvalid(axis_host_recv_512.tvalid),
+        .m_axis_tready(axis_host_recv_512.tready),
+        .m_axis_tdata (axis_host_recv_512.tdata),
+        .m_axis_tkeep (axis_host_recv_512.tkeep),
+        .m_axis_tlast (axis_host_recv_512.tlast),
+        .m_axis_tid   (axis_host_recv_512.tid)
     );
 
-    // Width converter: 32->512 for host output
     dwidth_converter_32_512 inst_dwidth_send (
         .aclk(clk_100M),
         .aresetn(rst_n_100M),
-        
-        // From SVM (32-bit)
-        .s_axis_tvalid(svm_out_tvalid),
-        .s_axis_tready(svm_out_tready),
-        .s_axis_tdata(svm_out_tdata),
-        .s_axis_tkeep(svm_out_tkeep),
-        .s_axis_tlast(svm_out_tlast),
-        
-        // To host (512-bit)
-        .m_axis_tvalid(axis_src_int[0].tvalid),
-        .m_axis_tready(axis_src_int[0].tready),
-        .m_axis_tdata(axis_src_int[0].tdata),
-        .m_axis_tkeep(axis_src_int[0].tkeep),
-        .m_axis_tlast(axis_src_int[0].tlast)
+        .s_axis_tvalid(axis_host_send_512.tvalid),
+        .s_axis_tready(axis_host_send_512.tready),
+        .s_axis_tdata (axis_host_send_512.tdata),
+        .s_axis_tkeep (axis_host_send_512.tkeep),
+        .s_axis_tlast (axis_host_send_512.tlast),
+        .s_axis_tid   (axis_host_send_512.tid),
+        .m_axis_tvalid(axis_src[i].tvalid),
+        .m_axis_tready(axis_src[i].tready),
+        .m_axis_tdata (axis_src[i].tdata),
+        .m_axis_tkeep (axis_src[i].tkeep),
+        .m_axis_tlast (axis_src[i].tlast),
+        .m_axis_tid   (axis_src[i].tid)
     );
+    end
     
     // AXI Crossbar instance
     axi_crossbar_0 inst_axi_crossbar (
@@ -187,7 +160,6 @@ module vfpga_top (
         .s_axi_rready           (axi_ctrl.rready),
         // Master interface (to SVM control)
         .m_axi_awaddr           (inst_svm.s_axi_control_AWADDR),
-        .m_axi_awprot           (),  // Not used
         .m_axi_awvalid          (inst_svm.s_axi_control_AWVALID),
         .m_axi_awready          (inst_svm.s_axi_control_AWREADY),
         .m_axi_wdata            (inst_svm.s_axi_control_WDATA),
@@ -198,7 +170,6 @@ module vfpga_top (
         .m_axi_bvalid           (inst_svm.s_axi_control_BVALID),
         .m_axi_bready           (inst_svm.s_axi_control_BREADY),
         .m_axi_araddr           (inst_svm.s_axi_control_ARADDR),
-        .m_axi_arprot           (),  // Not used
         .m_axi_arvalid          (inst_svm.s_axi_control_ARVALID),
         .m_axi_arready          (inst_svm.s_axi_control_ARREADY),
         .m_axi_rdata            (inst_svm.s_axi_control_RDATA),
@@ -211,99 +182,119 @@ module vfpga_top (
     svm_speech_30_0 inst_svm (
         .ap_clk                (clk_10M),
         .ap_rst_n              (rst_n_10M),
-        .input_r_TDATA         (svm_in_tdata),
-        .input_r_TREADY        (svm_in_tready),
-        .input_r_TVALID        (svm_in_tvalid),
-        .output_r_TDATA        (svm_out_tdata),
-        .output_r_TREADY       (svm_out_tready),
-        .output_r_TVALID       (svm_out_tvalid),
-        .s_axi_control_ARADDR  (m_axi_ARADDR),
-        .s_axi_control_ARREADY (m_axi_ARREADY),
-        .s_axi_control_ARVALID (m_axi_ARVALID),
-        .s_axi_control_AWADDR  (m_axi_AWADDR),
-        .s_axi_control_AWREADY (m_axi_AWREADY),
-        .s_axi_control_AWVALID (m_axi_AWVALID),
-        .s_axi_control_BREADY  (m_axi_BREADY),
-        .s_axi_control_BRESP   (m_axi_BRESP),
-        .s_axi_control_BVALID  (m_axi_BVALID),
-        .s_axi_control_RDATA   (m_axi_RDATA),
-        .s_axi_control_RREADY  (m_axi_RREADY),
-        .s_axi_control_RRESP   (m_axi_RRESP),
-        .s_axi_control_RVALID  (m_axi_RVALID),
-        .s_axi_control_WDATA   (m_axi_WDATA),
-        .s_axi_control_WREADY  (m_axi_WREADY),
-        .s_axi_control_WSTRB   (m_axi_WSTRB),
-        .s_axi_control_WVALID  (m_axi_WVALID)
+        .input_r_TDATA         (svm_in.tdata),
+        .input_r_TREADY        (svm_in.tready),
+        .input_r_TVALID        (svm_in.tvalid),
+        .input_r_TLAST         (svm_in.tlast),     
+        .input_r_TKEEP         (svm_in.tkeep),
+        .output_r_TDATA        (svm_out.tdata),
+        .output_r_TREADY       (svm_out.tready),
+        .output_r_TVALID       (svm_out.tvalid),
+        .output_r_TLAST        (svm_out.tlast),    
+        .output_r_TKEEP        (svm_out.tkeep),  
+        .s_axi_control_ARADDR  (inst_axi_crossbar.m_axi_ARADDR),
+        .s_axi_control_ARREADY (inst_axi_crossbar.m_axi_ARREADY),
+        .s_axi_control_ARVALID (inst_axi_crossbar.m_axi_ARVALID),
+        .s_axi_control_AWADDR  (inst_axi_crossbar.m_axi_AWADDR),
+        .s_axi_control_AWREADY (inst_axi_crossbar.m_axi_AWREADY),
+        .s_axi_control_AWVALID (inst_axi_crossbar.m_axi_AWVALID),
+        .s_axi_control_BREADY  (inst_axi_crossbar.m_axi_BREADY),
+        .s_axi_control_BRESP   (inst_axi_crossbar.m_axi_BRESP),
+        .s_axi_control_BVALID  (inst_axi_crossbar.m_axi_BVALID),
+        .s_axi_control_RDATA   (inst_axi_crossbar.m_axi_RDATA),
+        .s_axi_control_RREADY  (inst_axi_crossbar.m_axi_RREADY),
+        .s_axi_control_RRESP   (inst_axi_crossbar.m_axi_RRESP),
+        .s_axi_control_RVALID  (inst_axi_crossbar.m_axi_RVALID),
+        .s_axi_control_WDATA   (inst_axi_crossbar.m_axi_WDATA),
+        .s_axi_control_WREADY  (inst_axi_crossbar.m_axi_WREADY),
+        .s_axi_control_WSTRB   (inst_axi_crossbar.m_axi_WSTRB),
+        .s_axi_control_WVALID  (inst_axi_crossbar.m_axi_WVALID)
     );
 
     // FFT instance (100MHz)
     xfft_0 inst_xfft (
         .aclk              (clk_100M),
         .aresetn           (rst_n_100M),
-        .s_axis_data_tdata     (axis_sink_int[0].tdata),  // Changed to use internal interface
-        .s_axis_data_tvalid    (axis_sink_int[0].tvalid),
-        .s_axis_data_tready    (axis_sink_int[0].tready),
-        .s_axis_data_tlast     (axis_sink_int[0].tlast),
-        .m_axis_data_tdata (fft_tdata),
-        .m_axis_data_tvalid(fft_tvalid),
-        .m_axis_data_tready(fft_tready),
-        .m_axis_data_tlast (fft_tlast),
-    	.s_axis_config_tdata   (xlconstant_0_dout),    // 16-bit config from constant
-    	.s_axis_config_tvalid  (xlconstant_1_dout),    // Valid signal always high
+        .s_axis_data_tdata     (axis_host_recv_512.tdata),  
+        .s_axis_data_tvalid    (axis_host_recv_512.tvalid),
+        .s_axis_data_tready    (axis_host_recv_512.tready),
+        .s_axis_data_tlast     (axis_host_recv_512.tlast),
+        .s_axis_data_tkeep     (axis_host_recv_512.tkeep),
+        .m_axis_data_tid       (axis_host_recv_512.tid),
+        .m_axis_data_tdata     (fft.tdata),
+        .m_axis_data_tvalid    (fft.tvalid),
+        .m_axis_data_tready    (fft.tready),
+        .m_axis_data_tlast     (fft.tlast),
+        .m_axis_data_tkeep     (fft.tkeep),
+        .m_axis_data_tid       (fft.tid),        
+    	.s_axis_config_tdata   (xlconstant_0_dout),     // 16-bit config from constant
+    	.s_axis_config_tvalid  (xlconstant_1_dout),     // Valid signal always high
     	.s_axis_config_tready  (),                      // Not used
-    	.s_axis_data_tuser    (1'b0),                  // Not used
-    	.m_axis_data_tuser    (),                      // Not used
-    	.m_axis_status_tdata  (),                      // Not used
-    	.m_axis_status_tvalid (),                      // Not used
-    	.m_axis_status_tready (1'b1)                   // Always ready
+    	.s_axis_data_tuser     (1'b0),                  // Not used
+    	.m_axis_data_tuser     (),                      // Not used
+    	.m_axis_status_tdata   (),                      // Not used
+    	.m_axis_status_tvalid  (),                      // Not used
+    	.m_axis_status_tready  (1'b1)                   // Always ready
     );
 
     // FFT2SVM instance (100MHz)
     fft2svm_0 inst_fft2svm (
-        .ap_clk            (clk_100M),
+        .ap_clk           (clk_100M),
         .ap_rst_n         (rst_n_100M),
-        .s_axis_fft_tdata (fft_tdata),
-        .s_axis_fft_tvalid(fft_tvalid),
-        .s_axis_fft_tready(fft_tready),
-        .s_axis_fft_tlast (fft_tlast),
-        .m_axis_svm_tdata (fft2svm_tdata),
-        .m_axis_svm_tvalid(fft2svm_tvalid),
-        .m_axis_svm_tready(fft2svm_tready),
-        .m_axis_svm_tlast (fft2svm_tlast)
+        .s_axis_fft_tdata (fft.tdata),
+        .s_axis_fft_tvalid(fft.tvalid),
+        .s_axis_fft_tready(fft.tready),
+        .s_axis_fft_tlast (fft.tlast),
+        .s_axis_fft_tkeep (fft.tkeep),
+        .s_axis_fft_tid   (fft.tid),
+        .m_axis_svm_tdata (fft2svm.tdata),
+        .m_axis_svm_tvalid(fft2svm.tvalid),
+        .m_axis_svm_tready(fft2svm.tready),
+        .m_axis_svm_tlast (fft2svm.tlast),
+        .m_axis_svm_tkeep (fft2svm.tkeep),
+        .m_axis_svm_tid   (fft2svm.tid)
     );
 
     // Clock Converter FFT2SVM -> SVM (100MHz -> 10MHz)
     axis_clock_converter_1 inst_cc_fft2svm (
         .s_axis_aclk     (clk_100M),
         .s_axis_aresetn  (rst_n_100M),
-        .s_axis_tdata    (fft2svm_tdata),
-        .s_axis_tvalid   (fft2svm_tvalid),
-        .s_axis_tready   (fft2svm_tready),
-        .s_axis_tlast    (fft2svm_tlast),
+        .s_axis_tdata    (fft2svm.tdata),
+        .s_axis_tvalid   (fft2svm.tvalid),
+        .s_axis_tready   (fft2svm.tready),
+        .s_axis_tlast    (fft2svm.tlast),
+        .s_axis_tkeep    (fft2svm.tkeep),
+        .s_axis_tid      (fft2svm.tid),
         .m_axis_aclk     (clk_10M),
         .m_axis_aresetn  (rst_n_10M),
-        .m_axis_tdata    (svm_in_tdata),
-        .m_axis_tvalid   (svm_in_tvalid),
-        .m_axis_tready   (svm_in_tready),
-        .m_axis_tlast    (svm_in_tlast)
+        .m_axis_tdata    (svm_in.tdata),
+        .m_axis_tvalid   (svm_in.tvalid),
+        .m_axis_tready   (svm_in.tready),
+        .m_axis_tlast    (svm_in.tlast),
+        .m_axis_tkeep    (svm_in.tkeep),
+        .m_axis_tid      (svm_in.tid)
     );
 
-    // Clock Converter SVM -> Host (10MHz -> 100MHz)
+    // Clock Converter SVM -> DWidth Converter (10MHz -> 100MHz)
     axis_clock_converter_0 inst_cc_svm2host (
         .s_axis_aclk     (clk_10M),
         .s_axis_aresetn  (rst_n_10M),
-        .s_axis_tdata    (svm_out_tdata),
-        .s_axis_tvalid   (svm_out_tvalid),
-        .s_axis_tready   (svm_out_tready),
-        .s_axis_tlast    (svm_out_tlast),
+        .s_axis_tdata    (svm_out.tdata),
+        .s_axis_tvalid   (svm_out.tvalid),
+        .s_axis_tready   (svm_out.tready),
+        .s_axis_tlast    (svm_out.tlast),
+        .s_axis_tkeep    (svm_out.tkeep),
+        .s_axis_tid      (svm_out.tid),
         .m_axis_aclk     (clk_100M),
         .m_axis_aresetn  (rst_n_100M),
-        .m_axis_tdata    (axis_src_int[0].tdata),    // Changed to use internal interface
-        .m_axis_tkeep    (axis_src_int[0].tkeep),
-        .m_axis_tvalid   (axis_src_int[0].tvalid),
-        .m_axis_tready   (axis_src_int[0].tready),
-        .m_axis_tlast    (axis_src_int[0].tlast)
+        .m_axis_tdata    (axis_host_send_512.tdata),    
+        .m_axis_tkeep    (axis_host_send_512.tkeep),
+        .m_axis_tvalid   (axis_host_send_512.tvalid),
+        .m_axis_tready   (axis_host_send_512.tready),
+        .m_axis_tlast    (axis_host_send_512.tlast),
+        .m_axis_tid      (axis_host_send_512.tid)
     );
+    
     
     // Tie off unused interfaces
     always_comb begin
@@ -314,43 +305,34 @@ module vfpga_top (
         cq_wr.tie_off_s();
     end
 
-    // Generate block for array indexing
-    generate
-        for(genvar i = 1; i < N_STRM_AXI; i++) begin
-            always_comb begin
-                axis_host_send[i].tie_off_m();
-                axis_card_send[i].tie_off_m();
-            end
-        end
-    endgenerate
    
   // DBG
   ila_0 inst_ila_0 (
       .clk            (aclk),
-      .probe0         (axis_sink_int[0].tvalid),     // Internal host input valid
-      .probe1         (axis_sink_int[0].tready),     // Internal host input ready
-      .probe2         (axis_sink_int[0].tdata),      // Internal host input data
-      .probe3         (axis_sink_int[0].tlast),      // Internal host input last
-      .probe4         (fft_tvalid),                  // FFT output valid
-      .probe5         (fft_tready),                  // FFT output ready
-      .probe6         (fft_tdata),                   // FFT output data
-      .probe7         (fft_tlast),                   // FFT output last
-      .probe8         (fft2svm_tvalid),              // FFT2SVM output valid
-      .probe9         (fft2svm_tready),              // FFT2SVM output ready
-      .probe10        (fft2svm_tdata),               // FFT2SVM output data
-      .probe11        (fft2svm_tlast),               // FFT2SVM output last
-      .probe12        (svm_in_tvalid),               // SVM input valid
-      .probe13        (svm_in_tready),               // SVM input ready
-      .probe14        (svm_in_tdata),                // SVM input data
-      .probe15        (svm_in_tlast),                // SVM input last
-      .probe16        (svm_out_tvalid),              // SVM output valid
-      .probe17        (svm_out_tready),              // SVM output ready
-      .probe18        (svm_out_tdata),               // SVM output data
-      .probe19        (svm_out_tlast),               // SVM output last
-      .probe20        (axis_src_int[0].tvalid),      // Internal host output valid
-      .probe21        (axis_src_int[0].tready),      // Internal host output ready
-      .probe22        (axis_src_int[0].tdata),       // Internal host output data
-      .probe23        (axis_src_int[0].tlast),       // Internal host output last
+      .probe0         (axis_sink[0].tvalid),     // Internal host input valid
+      .probe1         (axis_sink[0].tready),     // Internal host input ready
+      .probe2         (axis_sink[0].tdata),      // Internal host input data
+      .probe3         (axis_sink[0].tlast),      // Internal host input last
+      .probe4         (fft.tvalid),                  // FFT output valid
+      .probe5         (fft.tready),                  // FFT output ready
+      .probe6         (fft.tdata),                   // FFT output data
+      .probe7         (fft.tlast),                   // FFT output last
+      .probe8         (fft2svm.tvalid),              // FFT2SVM output valid
+      .probe9         (fft2svm.tready),              // FFT2SVM output ready
+      .probe10        (fft2svm.tdata),               // FFT2SVM output data
+      .probe11        (fft2svm.tlast),               // FFT2SVM output last
+      .probe12        (svm_in.tvalid),               // SVM input valid
+      .probe13        (svm_in.tready),               // SVM input ready
+      .probe14        (svm_in.tdata),                // SVM input data
+      .probe15        (svm_in.tlast),                // SVM input last
+      .probe16        (svm_out.tvalid),              // SVM output valid
+      .probe17        (svm_out.tready),              // SVM output ready
+      .probe18        (svm_out.tdata),               // SVM output data
+      .probe19        (svm_out.tlast),               // SVM output last
+      .probe20        (axis_src[0].tvalid),      // Internal host output valid
+      .probe21        (axis_src[0].tready),      // Internal host output ready
+      .probe22        (axis_src[0].tdata),       // Internal host output data
+      .probe23        (axis_src[0].tlast),       // Internal host output last
       .probe24        (clk_locked),                  // Clock wizard locked
       .probe25        (rst_n_100M),                  // 100MHz reset
       .probe26        (rst_n_10M)                    // 10MHz reset
