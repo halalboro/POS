@@ -124,7 +124,10 @@ module mmu_top #(
 `endif
 	
 	// Page fault IRQ
-	output logic [N_REGIONS-1:0]    	usr_irq
+	output logic [N_REGIONS-1:0]    	usr_irq,
+
+    // IO Control switches
+    output logic [N_REGIONS-1:0][7:0]   io_ctrl_switch
 );
 
 //
@@ -306,7 +309,8 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
             
             .s_notify(s_notify[i]), //
             
-            .usr_irq(usr_irq[i]) //
+            .usr_irq(usr_irq[i]), //
+            .io_ctrl(io_ctrl_switch[i])
         );
 
 end

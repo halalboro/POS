@@ -9,12 +9,7 @@ ${APPS_ALL}
 # Package
 #
 for {set i 0} {$i < $cfg(n_config)} {incr i} {
-    puts "cfg(n_config) is $cfg(n_config)"
-
     for {set j 0} {$j < $cfg(n_reg)} {incr j} {
-        puts "before open project"
-        puts "cfg(n_reg) is $cfg(n_reg)"
-
         set proj_dir        "$build_dir/$project\_config_$i/user\_c$i\_$j"
         open_project        "$proj_dir/$project.xpr"
 

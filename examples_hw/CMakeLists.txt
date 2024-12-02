@@ -23,7 +23,7 @@ if(EXAMPLE STREQUAL "static")
     set(BUILD_STATIC 1)
     set(BUILD_SHELL 0)
     set(BUILD_OPT 1)
-    set(N_REGIONS 4)
+    set(N_REGIONS 2)
     set(EN_STRM 1)
     set(EN_MEM 1)
     set(HBM_SPLIT 0)
@@ -33,8 +33,8 @@ if(EXAMPLE STREQUAL "static")
     load_apps (
         VFPGA_C0_0 "apps/perf_local"
         VFPGA_C0_1 "apps/perf_local"
-        VFPGA_C0_2 "apps/perf_local"
-        VFPGA_C0_3 "apps/perf_local"
+        # VFPGA_C0_2 "apps/perf_local"
+        # VFPGA_C0_3 "apps/perf_local"
     )
 
     create_hw()
@@ -54,13 +54,13 @@ endif()
 if(EXAMPLE STREQUAL "streaming")
     message("** Streaming examples: HyperLogLog (cardinality estimation), GBM decision trees (inference) and AES CBC mode")
     set(SHELL_PROBE 1)
-    set(FDEV_NAME "u55c")
+    # set(FDEV_NAME "u55c")
     set(N_REGIONS 1)
     set(EN_STRM 1)
     set(EN_MEM 0)
     set(EN_PR 1)
     set(N_CONFIG 2)
-    set(FPLAN_PATH "${CMAKE_SOURCE_DIR}/floorplans/streaming_fplan_u55c.xdc")
+    # set(FPLAN_PATH "${CMAKE_SOURCE_DIR}/floorplans/streaming_fplan_u55c.xdc")
 
     validation_checks_hw()
 
@@ -100,7 +100,9 @@ endif()
 if(EXAMPLE STREQUAL "multithreading")
     message("** Streaming examples: Multithreading AES CBC")
     set(SHELL_PROBE 2)
-    set(FDEV_NAME "u55c")
+    message("** FDEV_NAME is ${FDEV_NAME}")
+    # set(FDEV_NAME "u55c")
+    message("** FDEV_NAME is ${FDEV_NAME}")
     set(N_REGIONS 1)
     set(EN_STRM 1)
     set(N_STRM_AXI 8)
@@ -229,6 +231,8 @@ endif()
 #
 
 if(EXAMPLE STREQUAL "perf_fpga")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
     set(N_REGIONS 1)
     set(EN_STRM 1)
     set(N_STRM_AXI 2)
