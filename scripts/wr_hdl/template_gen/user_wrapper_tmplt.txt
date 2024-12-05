@@ -64,17 +64,17 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) output irq_not_t                            notify_data,
 
     // HOST DESCRIPTORS
-    (* io_buffer_type = "none" *) input  logic 							      host_sq_valid,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic 							      host_sq_valid,
     (* io_buffer_type = "none" *) output logic 							      host_sq_ready,
-    (* io_buffer_type = "none" *) input  dreq_t 							  host_sq_data,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  dreq_t 							  host_sq_data,
 
     // BYPASS DESCRIPTORS
-    (* io_buffer_type = "none" *) output logic                                bpss_rd_sq_valid,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic                                bpss_rd_sq_valid,
     (* io_buffer_type = "none" *) input  logic                                bpss_rd_sq_ready,
-    (* io_buffer_type = "none" *) output req_t                                bpss_rd_sq_data,
-    (* io_buffer_type = "none" *) output logic                                bpss_wr_sq_valid,
+    (* mark_debug = "true", io_buffer_type = "none" *) output req_t                                bpss_rd_sq_data,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic                                bpss_wr_sq_valid,
     (* io_buffer_type = "none" *) input  logic                                bpss_wr_sq_ready,
-    (* io_buffer_type = "none" *) output req_t                                bpss_wr_sq_data,
+    (* mark_debug = "true", io_buffer_type = "none" *) output req_t                                bpss_wr_sq_data,
     (* io_buffer_type = "none" *) input  logic                                bpss_rd_cq_valid,
     (* io_buffer_type = "none" *) output logic                                bpss_rd_cq_ready,
     (* io_buffer_type = "none" *) input  ack_t                                bpss_rd_cq_data,
@@ -87,8 +87,8 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) input  logic[AXI_DATA_BITS-1:0]             axis_host_sink_tdata,
     (* io_buffer_type = "none" *) input  logic[AXI_DATA_BITS/8-1:0]           axis_host_sink_tkeep,
     (* io_buffer_type = "none" *) input  logic                                axis_host_sink_tlast,
-    (* io_buffer_type = "none" *) output logic                                axis_host_sink_tready,
-    (* io_buffer_type = "none" *) input  logic                                axis_host_sink_tvalid,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic                                axis_host_sink_tready,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic                                axis_host_sink_tvalid,
 
 	// AXI4S HOST SOURCE
     (* io_buffer_type = "none" *) output logic[AXI_DATA_BITS-1:0]             axis_host_src_tdata,
@@ -96,7 +96,23 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) output logic                                axis_host_src_tlast,
     (* io_buffer_type = "none" *) input  logic                                axis_host_src_tready,
     (* io_buffer_type = "none" *) output logic                                axis_host_src_tvalid,
-  
+
+    // AXI4S inter SINK
+    (* io_buffer_type = "none" *) input  logic[AXI_DATA_BITS-1:0]             axis_inter_sink_tdata,
+    (* io_buffer_type = "none" *) input  logic[AXI_DATA_BITS/8-1:0]           axis_inter_sink_tkeep,
+    (* io_buffer_type = "none" *) input  logic                                axis_inter_sink_tlast,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic                                axis_inter_sink_tready,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic                                axis_inter_sink_tvalid,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic[PID_BITS-1:0]                  axis_inter_sink_tid,
+
+    // AXI4S inter SOURCE
+    (* io_buffer_type = "none" *) output logic[AXI_DATA_BITS-1:0]             axis_inter_src_tdata,
+    (* io_buffer_type = "none" *) output logic[AXI_DATA_BITS/8-1:0]           axis_inter_src_tkeep,
+    (* io_buffer_type = "none" *) output logic                                axis_inter_src_tlast,
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic                                axis_inter_src_tready,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic                                axis_inter_src_tvalid,
+    (* mark_debug = "true", io_buffer_type = "none" *) output logic[PID_BITS-1:0]                  axis_inter_src_tid,
+
 {% endif %}
 {% if cnfg.en_mem %}
     {% for i in range(0, cnfg.n_card_axi) %}
@@ -335,6 +351,26 @@ module design_user_wrapper_{{ c_reg }} (
     assign axis_host_src_tkeep                  = axis_host_src.tkeep;
     assign axis_host_src_tlast                  = axis_host_src.tlast;
     assign axis_host_src.tready                 = axis_host_src_tready;
+
+    AXI4SR axis_inter_sink ();
+    AXI4SR axis_inter_sink_int ();
+
+    assign axis_inter_sink.tvalid                = axis_inter_sink_tvalid;
+    assign axis_inter_sink.tdata                 = axis_inter_sink_tdata;
+    assign axis_inter_sink.tkeep                 = axis_inter_sink_tkeep;
+    assign axis_inter_sink.tlast                 = axis_inter_sink_tlast;
+    assign axis_inter_sink_tready                = axis_inter_sink.tready;
+    assign axis_inter_sink.tid                   = axis_inter_sink_tid;
+
+    AXI4SR axis_inter_src ();
+    AXI4SR axis_inter_src_int [N_STRM_AXI] ();
+
+    assign axis_inter_src_tvalid                 = axis_inter_src.tvalid;
+    assign axis_inter_src_tdata                  = axis_inter_src.tdata;
+    assign axis_inter_src_tkeep                  = axis_inter_src.tkeep;
+    assign axis_inter_src_tlast                  = axis_inter_src.tlast;
+    assign axis_inter_src.tready                 = axis_inter_src_tready;
+    assign axis_inter_src_tid                    = axis_inter_src.tid;
 {% endif %}
 
 {% if cnfg.en_mem %}

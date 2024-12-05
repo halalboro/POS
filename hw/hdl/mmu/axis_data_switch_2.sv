@@ -37,7 +37,7 @@ import lynxTypes::*;
  *
  *  @param N_ID    Number of vFPGA regions
  */
-module axis_data_switch #(
+module axis_data_switch_2 #(
     // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
     parameter integer N_ID = N_REGIONS
 ) (
@@ -47,17 +47,20 @@ module axis_data_switch #(
     // IO control
     input logic [N_REGIONS-1:0][7:0]        io_ctrl,
 
-    // data input from shell to switch
-    AXI4S.s                                 data_shell_in [N_ID],
-    // data output from switch to shell
-    AXI4S.m                                 data_shell_out [N_ID],
+    // // data input from shell to switch
+    // AXI4S.s                                 data_shell_in [N_ID],
+    // // data output from switch to shell
+    // AXI4S.m                                 data_shell_out [N_ID],
 
     // data input from user logic to switch
-    AXI4S.s                                 data_ul_out [N_ID],
+    AXI4SR.s                                 data_ul_out [N_ID],
     // data output from switch to user logic
-    AXI4S.m                                 data_ul_in [N_ID]
+    AXI4SR.m                                 data_ul_in [N_ID]
 
 );
+
+    // `AXISR_ASSIGN(data_ul_out[0], data_ul_in[1])
+    // `AXISR_ASSIGN(data_ul_out[1], data_ul_in[0])
 
 // -- Constants
 localparam integer BEAT_LOG_BITS = $clog2(AXI_DATA_BITS/8);
@@ -85,48 +88,20 @@ logic [N_ID-1:0][1:0] axis_switch_0_m_tdest;
 // -- Mux 
 // ----------------------------------------------------------------------------------------------------------------------- 
 // -- interface loop issues => temp signals
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_shell_in_tvalid;
-logic [N_ID-1:0]                        data_shell_in_tready;
-logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_shell_in_tdata;
-logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_shell_in_tkeep;
-logic [N_ID-1:0]                        data_shell_in_tlast;
-
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_shell_out_tvalid;
-logic [N_ID-1:0]                        data_shell_out_tready;
-logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_shell_out_tdata;
-logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_shell_out_tkeep;
-logic [N_ID-1:0]                        data_shell_out_tlast;
-
 
 (* mark_debug = "true" *) logic [N_ID-1:0]                        data_ul_out_tvalid;
 logic [N_ID-1:0]                        data_ul_out_tready;
 logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_ul_out_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_ul_out_tkeep;
 logic [N_ID-1:0]                        data_ul_out_tlast;
+logic [N_ID-1:0][PID_BITS-1:0]                        data_ul_out_tid;
 
 (* mark_debug = "true" *) logic [N_ID-1:0]                        data_ul_in_tvalid;
 logic [N_ID-1:0]                        data_ul_in_tready;
 logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_ul_in_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_ul_in_tkeep;
 logic [N_ID-1:0]                        data_ul_in_tlast;
-
-
-for(genvar i = 0; i < N_ID; i++) begin
-    assign data_shell_in_tvalid[i] = data_shell_in[i].tvalid;
-    assign data_shell_in_tdata[i] = data_shell_in[i].tdata;
-    assign data_shell_in_tkeep[i] = data_shell_in[i].tkeep;
-    assign data_shell_in_tlast[i] = data_shell_in[i].tlast;
-    assign data_shell_in[i].tready = data_shell_in_tready[i];
-end
-
-
-for(genvar i = 0; i < N_ID; i++) begin
-    assign data_shell_out[i].tvalid = data_shell_out_tvalid[i];
-    assign data_shell_out[i].tdata = data_shell_out_tdata[i];
-    assign data_shell_out[i].tkeep = data_shell_out_tkeep[i];
-    assign data_shell_out[i].tlast = data_shell_out_tlast[i];
-    assign data_shell_out_tready[i] = data_shell_out[i].tready;
-end
+logic [N_ID-1:0][PID_BITS-1:0]                        data_ul_in_tid;
 
 
 for(genvar i = 0; i < N_ID; i++) begin
@@ -134,6 +109,7 @@ for(genvar i = 0; i < N_ID; i++) begin
     assign data_ul_out_tdata[i] = data_ul_out[i].tdata;
     assign data_ul_out_tkeep[i] = data_ul_out[i].tkeep;
     assign data_ul_out_tlast[i] = data_ul_out[i].tlast;
+    assign data_ul_out_tid[i] = data_ul_out[i].tid;
     assign data_ul_out[i].tready = data_ul_out_tready[i];
 end
 
@@ -142,57 +118,40 @@ for(genvar i = 0; i < N_ID; i++) begin
     assign data_ul_in[i].tdata = data_ul_in_tdata[i];
     assign data_ul_in[i].tkeep = data_ul_in_tkeep[i];
     assign data_ul_in[i].tlast = data_ul_in_tlast[i];
+    assign data_ul_in[i].tid = data_ul_in_tid[i];
     assign data_ul_in_tready[i] = data_ul_in[i].tready;
 end
 
-// axis_switch_0 inst_axis_switch_0 (
-//     .aclk(aclk),
-//     .aresetn(aresetn),
-//     .m_axis_tdata({data_shell_out_tdata[1], data_shell_out_tdata[0], data_ul_in_tdata[1], data_ul_in_tdata[0]}),
-//     .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-//     .m_axis_tready({data_shell_out_tready[1], data_shell_out_tready[0], data_ul_in_tready[1], data_ul_in_tready[0]}),
-//     .m_axis_tvalid({data_shell_out_tvalid[1], data_shell_out_tvalid[0], data_ul_in_tvalid[1], data_ul_in_tvalid[0]}),
-//     .s_axis_tdata({data_ul_out_tdata[1], data_ul_out_tdata[0], data_shell_in_tdata[1], data_shell_in_tdata[0]}),
-//     .s_axis_tdest({2'b11,2'b10,2'b01,2'b00}),
-//     .s_axis_tready({data_ul_out_tready[1], data_ul_out_tready[0], data_shell_in_tready[1], data_shell_in_tready[0]}),
-//     .s_axis_tvalid({data_ul_out_tvalid[1], data_ul_out_tvalid[0], data_shell_in_tvalid[1], data_shell_in_tvalid[0]}),
-//     .s_decode_err(axis_switch_0_s_decode_err)
-// );
 
-axis_switch_0 inst_axis_switch_0 (
+axis_switch_2_0 inst_axis_switch_0 (
     .aclk(aclk),
     .aresetn(aresetn),
-    .m_axis_tdata({data_shell_out_tdata[1], data_shell_out_tdata[0], data_ul_in_tdata[1], data_ul_in_tdata[0]}),
-    .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-    .m_axis_tready({data_shell_out_tready[1], data_shell_out_tready[0], data_ul_in_tready[1], data_ul_in_tready[0]}),
-    .m_axis_tvalid({data_shell_out_tvalid[1], data_shell_out_tvalid[0], data_ul_in_tvalid[1], data_ul_in_tvalid[0]}),
-    .s_axis_tdata({data_ul_out_tdata[1], data_ul_out_tdata[0], data_shell_in_tdata[1], data_shell_in_tdata[0]}),
-    .s_axis_tdest({2'b11,2'b10,2'b01,2'b00}),
-    .s_axis_tready({data_ul_out_tready[1], data_ul_out_tready[0], data_shell_in_tready[1], data_shell_in_tready[0]}),
-    .s_axis_tvalid({data_ul_out_tvalid[1], data_ul_out_tvalid[0], data_shell_in_tvalid[1], data_shell_in_tvalid[0]}),
+    .m_axis_tdata({data_ul_in_tdata[1], data_ul_in_tdata[0]}),
+    .m_axis_tdest({axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
+    .m_axis_tready({data_ul_in_tready[1], data_ul_in_tready[0]}),
+    .m_axis_tvalid({data_ul_in_tvalid[1], data_ul_in_tvalid[0]}),
+    .m_axis_tid({data_ul_in_tid[1], data_ul_in_tid[0]}),
+    .s_axis_tdata({data_ul_out_tdata[1], data_ul_out_tdata[0]}),
+    .s_axis_tdest({2'b00,2'b01}),
+    .s_axis_tready({data_ul_out_tready[1], data_ul_out_tready[0]}),
+    .s_axis_tvalid({data_ul_out_tvalid[1], data_ul_out_tvalid[0]}),
+    .s_axis_tid({data_ul_out_tid[1], data_ul_out_tid[0]}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
 
-ila_interconnect inst_ila_switch (
+
+ila_switch_2 inst_ila_switch (
     .clk(aclk),
-    .probe0(data_shell_in[0].tvalid),
-    .probe1(data_shell_out[0].tvalid),
-    .probe2(data_ul_in[0].tvalid),
-    .probe3(data_ul_out[0].tvalid),
-    .probe4(data_shell_in[1].tvalid),
-    .probe5(data_shell_out[1].tvalid),
-    .probe6(data_ul_in[1].tvalid),
-    .probe7(data_ul_out[1].tvalid),
-    .probe8(data_shell_in[0].tready),
-    .probe9(data_shell_out[0].tready),
-    .probe10(data_ul_in[0].tready),
-    .probe11(data_ul_out[0].tready),
-    .probe12(data_shell_in[1].tready),
-    .probe13(data_shell_out[1].tready),
-    .probe14(data_ul_in[1].tready),
-    .probe15(data_ul_out[1].tready),
-    .probe16(io_ctrl[0]),
-    .probe17(io_ctrl[1])
+    .probe0(data_ul_in[0].tvalid),
+    .probe1(data_ul_out[0].tvalid),
+    .probe2(data_ul_in[1].tvalid),
+    .probe3(data_ul_out[1].tvalid),
+    .probe4(data_ul_in[0].tready),
+    .probe5(data_ul_out[0].tready),
+    .probe6(data_ul_in[1].tready),
+    .probe7(data_ul_out[1].tready),
+    .probe8(io_ctrl[0]),
+    .probe9(io_ctrl[1])
 );
 
 // ila_interconnect_config inst_ila_interconnect_config (
