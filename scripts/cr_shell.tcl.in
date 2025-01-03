@@ -49,6 +49,7 @@ add_files "$hw_dir/hdl/pkg"
 add_files "$hw_dir/hdl/shell"
 add_files "$hw_dir/hdl/mmu"
 add_files "$hw_dir/hdl/common"
+add_files "$hw_dir/hdl/user"
 if {$cfg(en_card) eq 1} {
     add_files "$hw_dir/hdl/stripe"
     add_files "$hw_dir/hdl/cdma/cdma_u"

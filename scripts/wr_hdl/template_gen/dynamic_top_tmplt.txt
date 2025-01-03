@@ -277,7 +277,7 @@ module design_dynamic_top #(
 //        .data_ul_in(axis_inter_in_ul)
 //    );
 
-	axis_data_switch_2 inst_interconnect (.aclk(aclk), .aresetn(aresetn), .io_ctrl(io_ctrl_switch), 
+	axis_data_switch_3 inst_interconnect (.aclk(aclk), .aresetn(aresetn), .io_ctrl(io_ctrl_switch), 
         .data_ul_out(axis_inter_out_ul),
         .data_ul_in(axis_inter_in_ul)
     );
@@ -1175,6 +1175,7 @@ module design_dynamic_top #(
         .S_BSCAN_reset(S_BSCAN_reset[{{ i }}]),
         .S_BSCAN_capture(S_BSCAN_capture[{{ i }}]),
         .S_BSCAN_bscanid_en(S_BSCAN_bscanid_en[{{ i }}]),
+        .io_ctrl(io_ctrl_switch[{{ i }}]),
 {% if cnfg.en_uclk %}
         .aclk                   (uclk),
         .aresetn                (uresetn)
