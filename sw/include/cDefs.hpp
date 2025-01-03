@@ -195,6 +195,22 @@ enum class CoyoteAlloc {
     GPU = 4  // GPU-memory (required for the FPGA-GPU-DMA)
 };
 
+/* IO devices */
+enum class IODevs : uint8_t {
+    ALL_DIRECT = 0b00000000,
+    Inter_TO_0 = 0b00000000,
+    Inter_TO_1 = 0b00000001,
+    Inter_TO_2 = 0b00000010,
+    Inter_TO_3 = 0b00000011,
+    WRAPPER_HOST_DIRECT = 0b00000000,
+    WRAPPER_PIPE_LEAD = 0b00000100,
+    WRAPPER_PIPE_MID = 0b00001000
+};
+
+inline IODevs operator|(IODevs lhs, IODevs rhs) {
+    return static_cast<IODevs>(static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
+}
+
 /* AVX regs */
 // Control regs that get memory-mapped for controlling operations of the FPGA
 // These are the ones used for AVX-systems. Why is there a difference between AVX and legacy systems? 
