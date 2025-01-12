@@ -353,26 +353,6 @@ module design_user_wrapper_{{ c_reg }} (
     assign axis_host_src_tkeep                  = axis_host_src.tkeep;
     assign axis_host_src_tlast                  = axis_host_src.tlast;
     assign axis_host_src.tready                 = axis_host_src_tready;
-
-    AXI4SR axis_inter_sink ();
-    AXI4SR axis_inter_sink_int ();
-
-    assign axis_inter_sink.tvalid                = axis_inter_sink_tvalid;
-    assign axis_inter_sink.tdata                 = axis_inter_sink_tdata;
-    assign axis_inter_sink.tkeep                 = axis_inter_sink_tkeep;
-    assign axis_inter_sink.tlast                 = axis_inter_sink_tlast;
-    assign axis_inter_sink_tready                = axis_inter_sink.tready;
-    assign axis_inter_sink.tid                   = axis_inter_sink_tid;
-
-    AXI4SR axis_inter_src ();
-    AXI4SR axis_inter_src_int [N_STRM_AXI] ();
-
-    assign axis_inter_src_tvalid                 = axis_inter_src.tvalid;
-    assign axis_inter_src_tdata                  = axis_inter_src.tdata;
-    assign axis_inter_src_tkeep                  = axis_inter_src.tkeep;
-    assign axis_inter_src_tlast                  = axis_inter_src.tlast;
-    assign axis_inter_src.tready                 = axis_inter_src_tready;
-    assign axis_inter_src_tid                    = axis_inter_src.tid;
 {% endif %}
 
 {% if cnfg.en_mem %}
@@ -549,38 +529,6 @@ module design_user_wrapper_{{ c_reg }} (
     // AXIS host
     `AXIS_ASSIGN(axis_host_sink, axis_host_sink_int)
     `AXIS_ASSIGN(axis_host_src_int, axis_host_src)
-
-
-    AXI4SR axis_user_recv_int [N_STRM_AXI] ();
-    AXI4SR axis_user_send_int [N_STRM_AXI] ();
-
-    always_comb begin
-        case(io_ctrl[3:2]) 
-            2'b00: begin
-                // normal I/O, does not involve interconnect
-                `AXISR_ASSIGN_CTS(axis_host_recv_int[0], axis_user_recv_int[0]);
-                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_host_send_int[0]);
-            end
-            2'b01: begin
-                // normal input from shell
-                `AXISR_ASSIGN_CTS(axis_host_recv_int[0], axis_user_recv_int[0]);
-                // user logic output to inter 
-                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_inter_src);
-                // receive inter input for output 
-                `AXISR_ASSIGN_CTS(axis_inter_sink, axis_host_send_int[0]);
-
-            end
-            2'b10: begin
-                // inter input
-                `AXISR_ASSIGN_CTS(axis_inter_sink, axis_user_recv_int[0]);
-                // inter output 
-                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_inter_src);
-
-            end
-            default: 
-                ;
-        endcase
-    end
 
 {% endif %}
 {% if cnfg.en_mem %}
@@ -1080,8 +1028,8 @@ module design_user_wrapper_{{ c_reg }} (
         .rq_wr(user_rq_wr_int),
     {% endif %}
     {% if cnfg.en_strm %}
-        .axis_host_recv(axis_user_recv_int),
-        .axis_host_send(axis_user_send_int),
+        .axis_host_recv(axis_host_recv_int),
+        .axis_host_send(axis_host_send_int),
     {% endif %}
     {% if cnfg.en_mem %}
         .axis_card_recv(axis_card_recv_int),

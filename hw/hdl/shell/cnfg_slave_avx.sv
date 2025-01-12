@@ -286,6 +286,7 @@ localparam integer CTRL_REG                                 = 0;
     localparam integer CTRL_CLR_STAT        = 22;
     localparam integer CTRL_LEN_OFFS        = 32;
     localparam integer CTRL_VADDR_OFFS      = 64;
+    localparam integer CTRL_OFFS_OFFS       = 120;
     localparam integer WR_OFFS              = 128;
     // RD
     localparam integer CTRL_USED_OFFS       = 0;
@@ -1051,6 +1052,10 @@ assign usr_irq = irq_pending;
 
 // IO control
 assign io_ctrl = slv_reg[IO_SWITCH_REG][7:0];
+(* mark_debug = "true" *) logic [OFFS_BITS-1:0] req_1_offs, req_2_offs;
+
+assign req_1_offs = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
+assign req_2_offs = slv_reg[CTRL_REG][WR_OFFS+CTRL_OFFS_OFFS+:OFFS_BITS];
 
 // Host request
 metaIntf #(.STYPE(dreq_t)) host_req ();
@@ -1068,7 +1073,7 @@ assign host_req.data.req_1.actv         = slv_reg[CTRL_REG][CTRL_ACTV_OFFS];
 assign host_req.data.req_1.host         = 1'b1; // RSRVD
 assign host_req.data.req_1.vaddr        = slv_reg[CTRL_REG][CTRL_VADDR_OFFS+:VADDR_BITS];
 assign host_req.data.req_1.len          = slv_reg[CTRL_REG][CTRL_LEN_OFFS+:LEN_BITS];
-assign host_req.data.req_1.offs         = 0;
+assign host_req.data.req_1.offs         = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
 assign host_req.data.req_1.rsrvd        = 0;
 
 assign host_req.data.req_2.opcode       = slv_reg[CTRL_REG][WR_OFFS+CTRL_OPCODE_OFFS+:OPCODE_BITS];
@@ -1084,7 +1089,7 @@ assign host_req.data.req_2.actv         = slv_reg[CTRL_REG][WR_OFFS+CTRL_ACTV_OF
 assign host_req.data.req_2.host         = 1'b1; // RSRVD
 assign host_req.data.req_2.vaddr        = slv_reg[CTRL_REG][WR_OFFS+CTRL_VADDR_OFFS+:VADDR_BITS]; 
 assign host_req.data.req_2.len          = slv_reg[CTRL_REG][WR_OFFS+CTRL_LEN_OFFS+:LEN_BITS];
-assign host_req.data.req_2.offs         = 0;
+assign host_req.data.req_2.offs         = slv_reg[CTRL_REG][WR_OFFS+CTRL_OFFS_OFFS+:OFFS_BITS];
 assign host_req.data.req_2.rsrvd        = 0;
 
 assign host_req.valid = local_post || remote_post;

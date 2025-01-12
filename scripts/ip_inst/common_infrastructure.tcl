@@ -204,6 +204,12 @@ set_property -dict [list CONFIG.C_NUM_OF_PROBES {10} CONFIG.C_EN_STRG_QUAL {1} C
 create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_switch_4
 set_property -dict [list CONFIG.C_NUM_OF_PROBES {20} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_4} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8} CONFIG.C_PROBE18_WIDTH {8} CONFIG.C_PROBE19_WIDTH {8}] [get_ips ila_switch_4]
 
+create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_switch_6
+set_property -dict [list CONFIG.C_NUM_OF_PROBES {18} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_6} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE12_WIDTH {8} CONFIG.C_PROBE13_WIDTH {8} CONFIG.C_PROBE14_WIDTH {8} CONFIG.C_PROBE15_WIDTH {8} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8} ] [get_ips ila_switch_6]
+
+create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_dtu
+set_property -dict [list CONFIG.C_NUM_OF_PROBES {12} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_dtu} CONFIG.ALL_PROBE_SAME_MU_CNT {2} ] [get_ips ila_dtu]
+
 # # Interconnect
 # create_ip -name axi_interconnect -vendor xilinx.com -library ip -version 2.1 -module_name axi_stream_interconnect_0
 # # Configure AXI Interconnect
@@ -229,3 +235,6 @@ set_property -dict [list CONFIG.NUM_MI {2} CONFIG.NUM_SI {2} CONFIG.TDATA_NUM_BY
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_4_0
 set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_4_0]
+
+create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_6_0
+set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {3} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
