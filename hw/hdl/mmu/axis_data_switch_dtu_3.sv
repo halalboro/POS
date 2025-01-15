@@ -144,23 +144,37 @@ for(genvar i = 0; i < N_ID; i++) begin
 end
 
 
-
-
 axis_switch_6_0 inst_axis_switch_0 (
     .aclk(aclk),
     .aresetn(aresetn),
-    .m_axis_tdata({data_dtu_src_tdata[2], data_dtu_src_tdata[1], data_dtu_src_tdata[0], data_host_src_tdata[2], data_host_src_tdata[1], data_host_src_tdata[0]}),
-    .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-    .m_axis_tready({data_dtu_src_tready[1], data_dtu_src_tready[0], data_host_src_tready[1], data_host_src_tready[0]}),
-    .m_axis_tvalid({data_dtu_src_tvalid[1], data_dtu_src_tvalid[0], data_host_src_tvalid[1], data_host_src_tvalid[0]}),
-    .m_axis_tid({data_dtu_src_tid[1], data_dtu_src_tid[0], data_host_src_tid[1], data_host_src_tid[0]}),
-    .s_axis_tdata({data_dtu_sink_tdata[1], data_dtu_sink_tdata[0], data_host_sink_tdata[1], data_host_sink_tdata[0]}),
-    .s_axis_tdest({route_in[1][3:2], route_in[0][3:2], route_in[1][1:0], route_in[0][1:0]}),
-    .s_axis_tready({data_dtu_sink_tready[1], data_dtu_sink_tready[0], data_host_sink_tready[1], data_host_sink_tready[0]}),
-    .s_axis_tvalid({data_dtu_sink_tvalid[1], data_dtu_sink_tvalid[0], data_host_sink_tvalid[1], data_host_sink_tvalid[0]}),
-    .s_axis_tid({data_dtu_sink_tid[1], data_dtu_sink_tid[0], data_host_sink_tid[1], data_host_sink_tid[0]}),
+    .m_axis_tdata({data_dtu_src_tdata, data_host_src_tdata}),
+    .m_axis_tdest({axis_switch_0_m_tdest}),
+    .m_axis_tready({data_dtu_src_tready, data_host_src_tready}),
+    .m_axis_tvalid({data_dtu_src_tvalid, data_host_src_tvalid}),
+    .m_axis_tid({data_dtu_src_tid, data_host_src_tid}),
+    .s_axis_tdata({data_dtu_sink_tdata, data_host_sink_tdata}),
+    .s_axis_tdest({route_in[2][5:3], route_in[1][5:3], route_in[0][5:3], 3'b101, 3'b100, 3'b011}),
+    .s_axis_tready({data_dtu_sink_tready, data_host_sink_tready}),
+    .s_axis_tvalid({data_dtu_sink_tvalid, data_host_sink_tvalid}),
+    .s_axis_tid({data_dtu_sink_tid, data_host_sink_tid}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
+
+// axis_switch_6_0 inst_axis_switch_0 (
+//     .aclk(aclk),
+//     .aresetn(aresetn),
+//     .m_axis_tdata({data_dtu_src_tdata[2], data_dtu_src_tdata[1], data_dtu_src_tdata[0], data_host_src_tdata[2], data_host_src_tdata[1], data_host_src_tdata[0]}),
+//     .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
+//     .m_axis_tready({data_dtu_src_tready[1], data_dtu_src_tready[0], data_host_src_tready[1], data_host_src_tready[0]}),
+//     .m_axis_tvalid({data_dtu_src_tvalid[1], data_dtu_src_tvalid[0], data_host_src_tvalid[1], data_host_src_tvalid[0]}),
+//     .m_axis_tid({data_dtu_src_tid[1], data_dtu_src_tid[0], data_host_src_tid[1], data_host_src_tid[0]}),
+//     .s_axis_tdata({data_dtu_sink_tdata[1], data_dtu_sink_tdata[0], data_host_sink_tdata[1], data_host_sink_tdata[0]}),
+//     .s_axis_tdest({route_in[2][5:3], route_in[1][5:3], route_in[0][5:3], 3'b101, 3'b100, 3'b011}),
+//     .s_axis_tready({data_dtu_sink_tready[1], data_dtu_sink_tready[0], data_host_sink_tready[1], data_host_sink_tready[0]}),
+//     .s_axis_tvalid({data_dtu_sink_tvalid[1], data_dtu_sink_tvalid[0], data_host_sink_tvalid[1], data_host_sink_tvalid[0]}),
+//     .s_axis_tid({data_dtu_sink_tid[1], data_dtu_sink_tid[0], data_host_sink_tid[1], data_host_sink_tid[0]}),
+//     .s_decode_err(axis_switch_0_s_decode_err)
+// );
 
 ila_switch_6 inst_ila_switch (
     .clk(aclk),
