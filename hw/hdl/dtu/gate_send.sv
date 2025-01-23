@@ -52,7 +52,7 @@ logic [1:0] ul_id;
 always_ff @(posedge aclk) begin
   ul_id <= host_route_cap_in[1:0];
   route_capa_reg[ul_id] <= host_route_cap_in; 
-  route_out = route_capa_reg[ul_port_in];
+  route_out <= route_capa_reg[ul_port_in];
 end
 
 

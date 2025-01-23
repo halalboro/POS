@@ -262,6 +262,10 @@ module design_dynamic_top #(
 
     logic [N_REGIONS-1:0][7:0]   io_ctrl_switch;
     logic [N_REGIONS-1:0][7:0]   route_dtu_in;
+    logic [N_REGIONS-1:0][7:0]   route_dtu_out;
+    logic [N_REGIONS-1:0][1:0]   port_dtu_in;
+    logic [N_REGIONS-1:0][1:0]   port_dtu_out;
+
     AXI4SR axisr_ul_out [N_REGIONS] ();
     AXI4SR axisr_ul_in [N_REGIONS] ();
     AXI4SR axisr_dtu_in [N_REGIONS] ();
@@ -1219,8 +1223,8 @@ module design_dynamic_top #(
         .S_BSCAN_reset(S_BSCAN_reset[{{ i }}]),
         .S_BSCAN_capture(S_BSCAN_capture[{{ i }}]),
         .S_BSCAN_bscanid_en(S_BSCAN_bscanid_en[{{ i }}]),
-        .port_dtu_in(port_dtu_out[{{ i }}]),
-        .port_dtu_out(port_dtu_in[{{ i }}]),
+        .port_in(port_dtu_out[{{ i }}]),
+        .port_out(port_dtu_in[{{ i }}]),
 {% if cnfg.en_uclk %}
         .aclk                   (uclk),
         .aresetn                (uresetn)
