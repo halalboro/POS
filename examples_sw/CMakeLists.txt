@@ -47,6 +47,12 @@ if(EXAMPLE STREQUAL "perf_local")
     message("** Example: Validation tests - Link perf")
 endif()
 
+# Used in conjunction with the default shell
+if(EXAMPLE STREQUAL "pipeline")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/pipeline")
+    message("** Example: Validation tests - Link perf")
+endif()
+
 # FPGA perf benchmark
 if(EXAMPLE STREQUAL "perf_fpga")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_fpga")
