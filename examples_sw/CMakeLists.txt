@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.5)
 project(test)
 
 set(CYT_DIR ${CMAKE_SOURCE_DIR}/../)
@@ -48,9 +48,57 @@ if(EXAMPLE STREQUAL "perf_local")
 endif()
 
 # Used in conjunction with the default shell
+if(EXAMPLE STREQUAL "perf_mem")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_mem")
+    message("** Example: Test using fpga memory")
+endif()
+
+# Used in conjunction with the microshell
 if(EXAMPLE STREQUAL "pipeline")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/pipeline")
     message("** Example: Validation tests - Link perf")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "1dfft")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/1dfft")
+    message("** Example: Test 1dfft app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "fft2svm")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/fft2svm")
+    message("** Example: Test fft2svm app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "sha2")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/sha2")
+    message("** Example: Test sha2 app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "rsa")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rsa")
+    message("** Example: Test rsa app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "pipe_svm")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/svm")
+    message("** Example: Test svm app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "digi")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi")
+    message("** Example: Test digi pipeline app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "speech")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech")
+    message("** Example: Test speech pipeline app")
 endif()
 
 # FPGA perf benchmark
@@ -69,6 +117,19 @@ endif()
 if(EXAMPLE STREQUAL "streaming_client")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/streaming_service/client")
     message("** Example: Streaming service - Client")
+    include_directories(${TARGET_DIR}/../include)
+endif()
+
+# Streaming services example
+if(EXAMPLE STREQUAL "perf_server")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_service/server")
+    message("** Example: perf_local service - Server (Coyote daemon)")
+    include_directories(${TARGET_DIR}/../include ${TARGET_DIR}/include)
+endif()
+
+if(EXAMPLE STREQUAL "perf_client")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_service/client")
+    message("** Example: perf_local service - Client")
     include_directories(${TARGET_DIR}/../include)
 endif()
 
