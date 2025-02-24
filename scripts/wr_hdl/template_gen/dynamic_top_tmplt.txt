@@ -271,7 +271,7 @@ module design_dynamic_top #(
     AXI4SR axisr_dtu_in [N_REGIONS] ();
     AXI4SR axisr_dtu_out [N_REGIONS] ();
 
-	axis_data_switch_dtu inst_interconnect (
+	axis_data_switch_dtu_3 inst_interconnect (
         .aclk(aclk), 
         .aresetn(aresetn), 
         .route_in(route_dtu_out), 

@@ -75,7 +75,7 @@ module dtu_top #(
     input  logic                                axis_dtu_sink_tlast,
     (* mark_debug = "true" *) output logic                                axis_dtu_sink_tready,
     (* mark_debug = "true" *) input  logic                                axis_dtu_sink_tvalid,
-    (* mark_debug = "true" *) input logic[PID_BITS-1:0]                   axis_dtu_sink_tid,
+    input logic[PID_BITS-1:0]                   axis_dtu_sink_tid,
 
 	// AXI4SR INTER SOURCE
     output logic[AXI_DATA_BITS-1:0]             axis_dtu_src_tdata,
@@ -83,14 +83,14 @@ module dtu_top #(
     output logic                                axis_dtu_src_tlast,
     input  logic                                axis_dtu_src_tready,
     output logic                                axis_dtu_src_tvalid,
-    (* mark_debug = "true" *) output logic[PID_BITS-1:0]                  axis_dtu_src_tid,
+   output logic[PID_BITS-1:0]                  axis_dtu_src_tid,
 
     input  logic[AXI_DATA_BITS-1:0]             axisr_ul_sink_tdata,
     input  logic[AXI_DATA_BITS/8-1:0]           axisr_ul_sink_tkeep,
     input  logic                                axisr_ul_sink_tlast,
     (* mark_debug = "true" *) output logic                                axisr_ul_sink_tready,
     (* mark_debug = "true" *) input  logic                                axisr_ul_sink_tvalid,    
-    (* mark_debug = "true" *) input logic[PID_BITS-1:0]                   axisr_ul_sink_tid,
+   input logic[PID_BITS-1:0]                   axisr_ul_sink_tid,
 
 	// AXI4SR INTER SOURCE
     output logic[AXI_DATA_BITS-1:0]             axisr_ul_src_tdata,
@@ -98,7 +98,7 @@ module dtu_top #(
     output logic                                axisr_ul_src_tlast,
     (* mark_debug = "true" *) input  logic                                axisr_ul_src_tready,
     (* mark_debug = "true" *) output logic                                axisr_ul_src_tvalid,
-    (* mark_debug = "true" *) output logic[PID_BITS-1:0]                  axisr_ul_src_tid, 
+   output logic[PID_BITS-1:0]                  axisr_ul_src_tid, 
 
     input logic [7:0]                           host_route_cap,
     input logic [7:0]                           route_in,
@@ -169,22 +169,21 @@ module dtu_top #(
     assign axis_host_recv[0].tready                 = axisr_ul_src_tready;
     assign axisr_ul_src_tid                    = axis_host_recv[0].tid;
 
-    (* mark_debug = "true" *) logic                         host_sq_int_valid;
-    (* mark_debug = "true" *) logic                         host_sq_int_data_req_1_actv;
-    (* mark_debug = "true" *) logic                         host_local_sq_rd_valid;
-    (* mark_debug = "true" *) logic                         local_sq_rd_valid;
-    (* mark_debug = "true" *) logic                         local_sq_rd_host_valid;
-    (* mark_debug = "true" *) logic                         local_cred_rd_host_valid;
-    (* mark_debug = "true" *) logic                         bpss_rd_req_int_valid;
+    // (* mark_debug = "true" *) logic host_sq_int_valid;
+    // (* mark_debug = "true" *) logic host_sq_int_data_req_1_actv;
+    // (* mark_debug = "true" *) logic host_local_sq_rd_valid;
+    // (* mark_debug = "true" *) logic local_sq_rd_valid;
+    // (* mark_debug = "true" *) logic local_sq_rd_host_valid;
+    // (* mark_debug = "true" *) logic local_cred_rd_host_valid;
+    // (* mark_debug = "true" *) logic bpss_rd_req_int_valid;
 
-    assign host_sq_int_valid                     = host_sq_int.valid;
-    assign host_sq_int_data_req_1_actv           = host_sq_int.data.req_1.actv;
-    assign host_local_sq_rd_valid                = host_local_sq_rd.valid;
-    assign local_sq_rd_valid                     = local_sq_rd.valid;
-    assign local_sq_rd_host_valid                = local_sq_rd_host.valid;
-    assign local_cred_rd_host_valid              = local_cred_rd_host.valid;
-    assign bpss_rd_req_int_valid                 = bpss_rd_req_int.valid;
-
+    // assign host_sq_int_valid                     = host_sq_int.valid;
+    // assign host_sq_int_data_req_1_actv           = host_sq_int.data.req_1.actv;
+    // assign host_local_sq_rd_valid                = host_local_sq_rd.valid;
+    // assign local_sq_rd_valid                     = local_sq_rd.valid;
+    // assign local_sq_rd_host_valid                = local_sq_rd_host.valid;
+    // assign local_cred_rd_host_valid              = local_cred_rd_host.valid;
+    // assign bpss_rd_req_int_valid                 = bpss_rd_req_int.valid;
 
 
     // 
