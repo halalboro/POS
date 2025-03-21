@@ -148,12 +148,14 @@ axis_switch_6_0 inst_axis_switch_0 (
     .m_axis_tdest({route_out, axis_switch_0_m_tdest}),
     .m_axis_tready({data_dtu_src_tready, data_host_src_tready}),
     .m_axis_tvalid({data_dtu_src_tvalid, data_host_src_tvalid}),
+    .m_axis_tlast({data_dtu_src_tlast, data_host_src_tlast}),
     .m_axis_tid({data_dtu_src_tid, data_host_src_tid}),
     .s_axis_tdata({data_dtu_sink_tdata, data_host_sink_tdata}),
 //    .s_axis_tdest({route_in[1][3:2], route_in[0][3:2], 2'b11, 2'b10}),
     .s_axis_tdest({route_in[2], route_in[1], route_in[0], 8'b10111100, 8'b10011100, 8'b01111100}),
     .s_axis_tready({data_dtu_sink_tready, data_host_sink_tready}),
     .s_axis_tvalid({data_dtu_sink_tvalid, data_host_sink_tvalid}),
+    .s_axis_tlast({data_dtu_sink_tlast, data_host_sink_tlast}),
     .s_axis_tid({data_dtu_sink_tid, data_host_sink_tid}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );

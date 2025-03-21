@@ -37,7 +37,7 @@ import lynxTypes::*;
  *
  *  @param N_ID    Number of vFPGA regions
  */
-module axis_data_switch_dtu #(
+module axis_data_switch_dtu_2 #(
     // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
     parameter integer N_ID = N_REGIONS
 ) (
@@ -152,11 +152,13 @@ axis_switch_4_0 inst_axis_switch_0 (
     .m_axis_tdest({route_out, axis_switch_0_m_tdest}),
     .m_axis_tready({data_dtu_src_tready, data_host_src_tready}),
     .m_axis_tvalid({data_dtu_src_tvalid, data_host_src_tvalid}),
+    .m_axis_tlast({data_dtu_src_tlast, data_host_src_tlast}),
     .m_axis_tid({data_dtu_src_tid, data_host_src_tid}),
     .s_axis_tdata({data_dtu_sink_tdata, data_host_sink_tdata}),
     .s_axis_tdest({route_in[1], route_in[0], 8'b01111100, 8'b01011100}),
     .s_axis_tready({data_dtu_sink_tready, data_host_sink_tready}),
     .s_axis_tvalid({data_dtu_sink_tvalid, data_host_sink_tvalid}),
+    .s_axis_tlast({data_dtu_sink_tlast, data_host_sink_tlast}),
     .s_axis_tid({data_dtu_sink_tid, data_host_sink_tid}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
@@ -171,18 +173,26 @@ ila_switch_4 inst_ila_switch (
     .probe5(data_host_src[0].tready),
     .probe6(data_host_sink[1].tready),
     .probe7(data_host_src[1].tready),
-    .probe8(data_dtu_sink[0].tvalid),
-    .probe9(data_dtu_src[0].tvalid),
-    .probe10(data_dtu_sink[1].tvalid),
-    .probe11(data_dtu_src[1].tvalid),
-    .probe12(data_dtu_sink[0].tready),
-    .probe13(data_dtu_src[0].tready),
-    .probe14(data_dtu_sink[1].tready),
-    .probe15(data_dtu_src[1].tready),
-    .probe16(route_in[0]),
-    .probe17(route_in[1]),
-    .probe18(route_in[0]),
-    .probe19(route_in[1])
+    .probe8(data_host_sink[0].tlast),
+    .probe9(data_host_src[0].tlast),
+    .probe10(data_host_sink[1].tlast),
+    .probe11(data_host_src[1].tlast),
+    .probe12(data_dtu_sink[0].tvalid),
+    .probe13(data_dtu_src[0].tvalid),
+    .probe14(data_dtu_sink[1].tvalid),
+    .probe15(data_dtu_src[1].tvalid),
+    .probe16(data_dtu_sink[0].tready),
+    .probe17(data_dtu_src[0].tready),
+    .probe18(data_dtu_sink[1].tready),
+    .probe19(data_dtu_src[1].tready),
+    .probe20(data_dtu_sink[0].tlast),
+    .probe21(data_dtu_src[0].tlast),
+    .probe22(data_dtu_sink[1].tlast),
+    .probe23(data_dtu_src[1].tlast),
+    .probe24(route_in[0]),
+    .probe25(route_in[1]),
+    .probe26(route_in[0]),
+    .probe27(route_in[1])
 );
 
 // ila_interconnect_config inst_ila_interconnect_config (

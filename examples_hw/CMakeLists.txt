@@ -353,6 +353,105 @@ if(EXAMPLE STREQUAL "digi_sig")
     create_hw()
 endif()
 
+if(EXAMPLE STREQUAL "digi_module")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/sha2_module"
+        VFPGA_C0_1 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi_base")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/digital_signature"
+        VFPGA_C0_1 "apps/digital_signature"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_base")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/speech"
+        VFPGA_C0_1 "apps/speech"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "counter_dtu")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_counter"
+        VFPGA_C0_1 "apps/perf_counter"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "counter_hbm")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_counter"
+        VFPGA_C0_1 "apps/perf_counter"
+    )
+
+    create_hw()
+endif()
 
 #
 # Shells with examples
