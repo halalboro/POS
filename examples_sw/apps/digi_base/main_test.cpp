@@ -30,16 +30,16 @@ void gotInt(int) {
 /* Def params */
 constexpr auto const defDevice = 0;
 
-constexpr auto const nRegions = 2;
+constexpr auto const nRegions = 1;
 constexpr auto const targetVfid = 0;  
 constexpr auto const defReps = 1;
-constexpr auto const defMinSize = 8 * 1024;  // 64KB default
-constexpr auto const defMaxSize = 128 * 1024;  // 64KB default
+constexpr auto const defMinSize = 32 * 1024;
+constexpr auto const defMaxSize = 32 * 1024 ;
 constexpr auto const defDW = 4;            // 32-bit for SHA
 constexpr auto const SHA256_DIGEST_LENGTH = 32;  // SHA256 produces 256-bit (32-byte) hash
 constexpr auto const nBenchRuns = 1;
 
-constexpr auto const RSA_OUTPUT_SIZE = 32;  // 256-bit RSA output (in bytes)
+constexpr auto const outputSize2 = 32;  // 256-bit RSA output (in bytes)
 
 // Define expected signatures for different data sizes from simulation
 const std::map<uint32_t, std::string> expectedSignatures = {
@@ -100,45 +100,35 @@ int main(int argc, char *argv[])
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, programDescription), commandLineArgs);
     boost::program_options::notify(commandLineArgs);
 
-    // uint32_t size = defSize;
+    uint32_t size = defMinSize;
     uint32_t n_reps = defReps;
     uint32_t cs_dev = defDevice; 
     uint32_t n_regions = nRegions;
     uint32_t curr_size = defMinSize;
     uint32_t max_size = defMaxSize;
 
-    if(commandLineArgs.count("size") > 0) curr_size = commandLineArgs["size"].as<uint32_t>();
+    if(commandLineArgs.count("size") > 0) size = commandLineArgs["size"].as<uint32_t>();
     if(commandLineArgs.count("reps") > 0) n_reps = commandLineArgs["reps"].as<uint32_t>();
 
     uint32_t n_pages_host = (max_size + hugePageSize - 1) / hugePageSize;
-    uint32_t n_pages_rslt = (n_reps * SHA256_DIGEST_LENGTH + pageSize - 1) / pageSize;
-
-    uint32_t n_pages_host_2 = (SHA256_DIGEST_LENGTH + hugePageSize - 1) / hugePageSize;
-    uint32_t n_pages_rslt_2 = (RSA_OUTPUT_SIZE + pageSize - 1) / pageSize;
+    uint32_t n_pages_rslt = (outputSize2 + pageSize - 1) / pageSize;
 
     PR_HEADER("PARAMS");
     std::cout << "vFPGA ID: " << targetVfid << std::endl;
     std::cout << "Number of allocated pages per run: " << n_pages_host << std::endl;
-    std::cout << "Starting transfer size: " << curr_size << std::endl;
+    std::cout << "Starting transfer size: " << size << std::endl;
     std::cout << "Ending transfer size: " << max_size << std::endl << std::endl;
     std::cout << "Number of reps: " << n_reps << std::endl;
-    
+
     std::vector<std::unique_ptr<cThread<std::any>>> cthread; // Coyote threads
 
     void* hMem[n_regions];
     void* hMem_out[n_regions];
 
     // Obtain resources
-    for (int i = 0; i < n_regions; i++) {
-        cthread.emplace_back(new cThread<std::any>(i, getpid(), cs_dev));
-        hMem[i] = cthread[i]->getMem({CoyoteAlloc::HPF, max_size});
-        hMem_out[i] = cthread[i]->getMem({CoyoteAlloc::HPF, RSA_OUTPUT_SIZE});
-        memset(hMem_out[i], 0, RSA_OUTPUT_SIZE);
-    }
-    // // Obtain resources
-    // cthread.emplace_back(new cThread<std::any>(0, getpid(), cs_dev));
-    // hMem[0] = cthread[0]->getMem({CoyoteAlloc::HPF, max_size});
-    // hMem_out[0] = cthread[0]->getMem({CoyoteAlloc::HPF, max_size});
+    cthread.emplace_back(new cThread<std::any>(0, getpid(), cs_dev));
+    hMem[0] = cthread[0]->getMem({CoyoteAlloc::HPF, n_pages_host});
+    hMem_out[0] = cthread[0]->getMem({CoyoteAlloc::HPF, n_pages_rslt});
 
     // Fill input with constant chunk pattern (matching the testbench)
     // This matches CONSTANT_CHUNK = 512'hFEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210;
@@ -149,7 +139,7 @@ int main(int argc, char *argv[])
             ((uint32_t *)hMem[0])[j+1] = 0xFEDCBA98;
         }
     }
-    // memset(hMem_out[0], 0, RSA_OUTPUT_SIZE);
+    memset(hMem_out[0], 0, outputSize2);
 
     sgEntry sg[n_regions];
 
@@ -157,77 +147,77 @@ int main(int argc, char *argv[])
     memset(&sg[0], 0, sizeof(localSg));
     sg[0].local.src_addr = hMem[0]; sg[0].local.src_stream = strmHost;
     sg[0].local.dst_addr = hMem_out[0]; sg[0].local.dst_stream = strmHost;
+    sg[0].local.src_dest = targetVfid;
+    sg[0].local.dst_dest = targetVfid;
 
-    memset(&sg[1], 0, sizeof(localSg));
-    sg[1].local.src_addr = hMem[1]; sg[1].local.src_stream = strmHost;
-    sg[1].local.dst_addr = hMem_out[1]; sg[1].local.dst_stream = strmHost;
+    sgFlags sg_flags = { true, true, false };
+    sg_flags.last = true;
 
+    // Memory allocation - vectors for multiple buffers
+    std::vector<uint32_t*> input_buffers(n_reps, nullptr);
+    std::vector<uint32_t*> output_buffers(n_reps, nullptr);
+    
+    // Allocate and initialize memory for each repetition
+    for(int i = 0; i < n_reps; i++) {
+        input_buffers[i] = (uint32_t*) cthread[0]->getMem({CoyoteAlloc::HPF, n_pages_host});
+        output_buffers[i] = (uint32_t*) cthread[0]->getMem({CoyoteAlloc::HPF, n_pages_rslt});
+        
+        if (!input_buffers[i] || !output_buffers[i]) {
+            throw std::runtime_error("Memory allocation failed");
+        }
 
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_2_TO_HOST_0);
-    // cthread[0]->ioSwDbg();
-    // sg[1].local.offset_r = 0;
-    // sg[1].local.offset_w = 0;
-    // cthread[1]->ioSwitch(IODevs::Inter_2_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
-
-    // from vFPGA 0 to vFPGA 1
-    sg[0].local.offset_r = 0;
-    sg[0].local.offset_w = 6;
-    cthread[0]->ioSwitch(IODevs::Inter_2_TO_DTU_1);
-    cthread[0]->ioSwDbg();
-    sg[1].local.offset_r = 6;
-    sg[1].local.offset_w = 0;
-    cthread[1]->ioSwitch(IODevs::Inter_2_TO_HOST_1);
-    cthread[1]->ioSwDbg();
+        // Clear output buffer
+        memset(output_buffers[i], 0, outputSize2);
+        
+        // Fill input with constant chunk pattern (matching the testbench)
+        // This matches CONSTANT_CHUNK = 512'hFEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210;
+        for (int j = 0; j < max_size/4; j += 2) {
+            // Fill two 32-bit words at a time to match the 64-bit pattern
+            input_buffers[i][j] = 0x76543210;
+            if (j+1 < max_size/4) {
+                input_buffers[i][j+1] = 0xFEDCBA98;
+            }
+        }
+    }
 
     cBench bench(nBenchRuns);
     uint32_t n_runs;
-    sgFlags sg_flags = { true, true, false };
-    sg_flags.last = true;
 
     // ---------------------------------------------------------------
     // Runs 
     // ---------------------------------------------------------------
-    PR_HEADER("Digi sig pipeline");
+    PR_HEADER("Digi sig base");
 
-    while(curr_size <= max_size) {
+    while(curr_size <= max_size) { 
         cthread[0]->clearCompleted();
 
         auto benchmark_thr = [&]() {
             // Queue all transfers
-            for(int i = 0; i < n_reps; i++) {
-                sg[0].local.src_len = curr_size;
-                sg[0].local.dst_len = SHA256_DIGEST_LENGTH;
+            sg[0].local.src_len = curr_size;
+            sg[0].local.dst_len = SHA256_DIGEST_LENGTH;
+            
+            cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], sg_flags);
 
-                sg[1].local.src_len = SHA256_DIGEST_LENGTH;
-                sg[1].local.dst_len = RSA_OUTPUT_SIZE;
-                
-                cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], sg_flags);
-                cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], sg_flags);
-            }
-
-            while(cthread[1]->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != n_reps) {
+            while(cthread[0]->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != n_reps) {
                 if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
             }
         };
 
         bench.runtime(benchmark_thr);
 
-    // Print detailed latency statistics
-        PR_HEADER("LATENCY MEASUREMENTS");
-        printLatencyStats(bench.getAvg() / n_reps, curr_size, n_reps);
-
         // Print results
         std::cout << "size: " << curr_size << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps) << " ns" << std::endl;
+
+        // Print detailed latency statistics
+        PR_HEADER("LATENCY MEASUREMENTS");
+        printLatencyStats(bench.getAvg() / n_reps, curr_size, n_reps);
 
         curr_size *= 2;
     }
 
     // Verify the signature against expected value
     PR_HEADER("VERIFICATION");
-    std::string actual_sig = bufferToHexString((uint32_t*)hMem_out[1], RSA_OUTPUT_SIZE);
+    std::string actual_sig = bufferToHexString((uint32_t*)hMem_out[0], outputSize2);
     
     // Check if we have an expected signature for this data size
     if (expectedSignatures.find(max_size) != expectedSignatures.end()) {
@@ -245,26 +235,9 @@ int main(int argc, char *argv[])
         std::cout << "Actual signature: 0x" << actual_sig << std::endl;
     }
 
-    // auto benchmark_thr = [&]() {
 
-    //     cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
-    //     cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
+    // Print results
 
-    //     while(cthread[1]->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != n_reps) {
-    //         if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
-    //     }
-    // };
-
-    // try {
-    //     bench.runtime(benchmark_thr);
-    // } catch (const std::exception& e) {
-    //     std::cerr << "Error: " << e.what() << std::endl;
-    //     return EXIT_FAILURE;
-    // }    
-
-    // // Print results
-    // std::cout << "Size: " << std::setw(8) << size << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps) << " ns" << std::endl;
-    // std::cout << "size: " << size << std::endl;
 
     // // Print hash results
     // for(int i = 0; i < n_reps; i++) {

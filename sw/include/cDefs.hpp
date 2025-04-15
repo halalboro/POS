@@ -25,7 +25,7 @@ namespace fpga {
 //#define VERBOSE_DEBUG_1 // Handle
 //#define VERBOSE_DEBUG_2 // Reconfig
 #define VERBOSE_DEBUG_3 // Perf
-#define VERBOSE         // Debug
+// #define VERBOSE         // Debug
 
 #ifdef VERBOSE_DEBUG_3
 #define VERBOSE_DEBUG_2
@@ -277,6 +277,7 @@ enum class CnfgAvxRegs : uint32_t {
     TCP_OPEN_CONN_REG = 14,
     TCP_OPEN_CONN_STAT_REG = 15,
     IO_SWITCH_REG = 53,
+    USER_DATA_REG = 54,
     STAT_DMA_REG = 64
 };
 

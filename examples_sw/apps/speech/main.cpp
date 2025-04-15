@@ -46,7 +46,7 @@ constexpr auto const nBenchRuns = 1;
 
 constexpr auto const targetVfid = 0;  
 constexpr auto const defReps = 1;
-constexpr auto const defSize = 16384;
+constexpr auto const defSize = 16384 * 2;
 constexpr auto const inputSize1 = defSize * 2 * sizeof(float);     // INPUT SIZE
 constexpr auto const outputSize1 = defSize * 2 * sizeof(float);    // OUTPUT SIZE
 constexpr auto const inputSize2 = outputSize1;    // INPUT SIZE

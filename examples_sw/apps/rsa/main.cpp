@@ -31,6 +31,23 @@ constexpr auto const defReps = 1;
 constexpr auto const defSize = 32;     // 256-bit input size in bytes
 constexpr auto const RSA_OUTPUT_SIZE = 32;  // 256-bit RSA output (in bytes)
 
+/**
+ * @brief Benchmark API
+ * 
+ */
+enum class BenchRegs : uint32_t {
+    CTRL_REG = 0,
+    DONE_REG = 1,
+    TIMER_REG = 2,
+    VADDR_REG = 3,
+    LEN_REG = 4,
+    PID_REG = 5,
+    N_REPS_REG = 6,
+    N_BEATS_REG = 7,
+    DEST_REG = 8
+};
+
+
 // Structure to hold 256-bit value as 8 32-bit words
 struct BigInt256 {
     uint32_t words[8];
@@ -107,8 +124,8 @@ int main(int argc, char *argv[]) {
         cthread->start();
 
         // Memory allocation
-        uint32_t* inputData = (uint32_t*) cthread->getMem({CoyoteAlloc::HPF, n_pages_host});
-        uint32_t* outputData = (uint32_t*) cthread->getMem({CoyoteAlloc::HPF, n_pages_rslt});
+        uint32_t* inputData = (uint32_t*) cthread->getMem({CoyoteAlloc::HPF, defSize});
+        uint32_t* outputData = (uint32_t*) cthread->getMem({CoyoteAlloc::HPF, RSA_OUTPUT_SIZE});
             
         if (!inputData || !outputData) {
             throw std::runtime_error("Memory allocation failed");
@@ -123,8 +140,11 @@ int main(int argc, char *argv[]) {
         
         cBench bench(1);
         cthread->clearCompleted();
-        cthread->ioSwitch(IODevs::Inter_3_TO_HOST_1);
+        cthread->ioSwitch(IODevs::Inter_2_TO_HOST_1);
         cthread->ioSwDbg();
+
+        uint32_t timer_value;
+
 
         auto benchmark_thr = [&]() {
             memset(&sg, 0, sizeof(localSg));
@@ -143,27 +163,21 @@ int main(int argc, char *argv[]) {
             cthread->invoke(CoyoteOper::LOCAL_TRANSFER, &sg, sg_flags);
 
             // Wait for completion
-            auto start_time = std::chrono::high_resolution_clock::now();
             while(cthread->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != 1) {
                 if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
-                
-                auto current_time = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
-                
-                if (elapsed > 30) {
-                    throw std::runtime_error("Transfer timeout after 30 seconds");
-                }
             }
+            timer_value = (uint32_t) cthread->getCSR(static_cast<uint32_t>(BenchRegs::TIMER_REG));
         };
 
         bench.runtime(benchmark_thr);
 
-        // Print results
-        PR_HEADER("RESULTS");
-        printHexBuffer(inputData, defSize/4, "Input ");
-        printHexBuffer(outputData, RSA_OUTPUT_SIZE/4, "Output");
+        // // Print results
+        // PR_HEADER("RESULTS");
+        // printHexBuffer(inputData, defSize/4, "Input ");
+        // printHexBuffer(outputData, RSA_OUTPUT_SIZE/4, "Output");
         
         std::cout << "\nLatency: " << bench.getAvg() << " us" << std::endl;
+        std::cout << "clock cycle: " << timer_value << std::endl;
 
         // Cleanup
         cthread->freeMem(inputData);
