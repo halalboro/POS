@@ -45,7 +45,7 @@ module mmu_region_top #(
 	// AXI tlb control and writeback
     AXI4L.s   							s_axi_ctrl_sTlb,
     AXI4L.s   							s_axi_ctrl_lTlb,
-
+    input logic [131-1:0]               ep_ctrl,
 	// Requests user
 	metaIntf.s 						    s_bpss_rd_sq,
 	metaIntf.s						    s_bpss_wr_sq,
@@ -119,6 +119,15 @@ AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_sTlb ();
 // Request interfaces
 metaIntf #(.STYPE(req_t)) rd_req ();
 metaIntf #(.STYPE(req_t)) wr_req ();
+
+logic [131-1:0] ep_ctrl_data;
+assign ep_ctrl_data = ep_ctrl;
+
+
+ila_mem_gate_signal inst_ila_mem_gate_signal (
+    .clk(aclk),
+    .probe0(ep_ctrl_data)
+);
 
 // ----------------------------------------------------------------------------------------
 // Mutex 
