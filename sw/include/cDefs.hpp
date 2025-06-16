@@ -198,20 +198,37 @@ enum class CoyoteAlloc {
     GPU = 4  // GPU-memory (required for the FPGA-GPU-DMA)
 };
 
+enum class MemCapa : uint64_t {
+    BASE_ADDRESS = 0xFFF1000000000000,
+    END_ADDRESS  = 0xFFFFFFFFFFFFFFFF,
+    ALL_PASS     = 0xF
+};
+
 /* IO devices */
-enum class IODevs : uint8_t {
+enum class IODevs : uint16_t {
+    Inter_3_TO_HOST_0  = 0b00001111111100,
+    Inter_3_TO_HOST_1  = 0b00011111111100,
+    Inter_3_TO_HOST_2  = 0b00101111111100,
+    Inter_3_TO_CEU_0   = 0b00111111111100,
+    Inter_3_TO_CEU_1   = 0b01001111111100,
+    Inter_3_TO_CEU_2   = 0b01011111111100,
 
-    Inter_3_TO_HOST_0  = 0b00000000,
-    Inter_3_TO_HOST_1  = 0b00100000,
-    Inter_3_TO_HOST_2  = 0b01000000,
-    Inter_3_TO_DTU_0   = 0b01100000,
-    Inter_3_TO_DTU_1   = 0b10000000,
-    Inter_3_TO_DTU_2   = 0b10100000,
+    Inter_2_TO_HOST_0  = 0b00001111111100,
+    Inter_2_TO_HOST_1  = 0b00011111111100,
+    Inter_2_TO_CEU_0   = 0b00101111111100,
+    Inter_2_TO_CEU_1   = 0b00111111111100,
 
-    Inter_2_TO_HOST_0  = 0b00000000,
-    Inter_2_TO_HOST_1  = 0b00100000,
-    Inter_2_TO_DTU_0   = 0b01000000,
-    Inter_2_TO_DTU_1   = 0b01100000,
+    // Inter_3_TO_HOST_0  = 0b00000000,
+    // Inter_3_TO_HOST_1  = 0b00100000,
+    // Inter_3_TO_HOST_2  = 0b01000000,
+    // Inter_3_TO_DTU_0   = 0b01100000,
+    // Inter_3_TO_DTU_1   = 0b10000000,
+    // Inter_3_TO_DTU_2   = 0b10100000,
+
+    // Inter_2_TO_HOST_0  = 0b00000000,
+    // Inter_2_TO_HOST_1  = 0b00100000,
+    // Inter_2_TO_DTU_0   = 0b01000000,
+    // Inter_2_TO_DTU_1   = 0b01100000,
 
     Inter_TO_HOST_0  = 0b00000000,
     Inter_TO_HOST_1  = 0b00001000,
@@ -323,6 +340,7 @@ enum class CnfgLegRegs : uint32_t {
     TCP_OPEN_PORT_REG = 48,
     TCP_OPEN_PORT_STAT_REG = 52,
     IO_SWITCH_REG = 53,
+    USER_DATA_REG = 54,
     TCP_OPEN_CONN_REG = 56,
     TCP_OPEN_CONN_STAT_REG = 60,
     STAT_DMA_REG = 64,

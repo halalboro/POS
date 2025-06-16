@@ -168,6 +168,8 @@ public:
 	 * @brief IO control switch 
 	 */
 	void ioSwitch(IODevs io_dev);
+
+	void memCap(MemCapa base_addr, MemCapa top_addr, MemCapa permission);
 	
 	void ioSwDbg();
 

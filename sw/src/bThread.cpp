@@ -604,11 +604,27 @@ void bThread::ioSwitch(IODevs io_dev) {
 	#ifdef EN_AVX
 	if(fcnfg.en_avx){
         // std::cout << "in en_avx ioSwitch: " << static_cast<int>(io_dev) << std::endl;
-		cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)] = _mm256_set_epi64x(0, 0, 0, static_cast<uint8_t>(io_dev));
+		cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)] = _mm256_set_epi64x(0, 0, 0, static_cast<uint16_t>(io_dev));
 	}
 	else
 #endif
 		cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::IO_SWITCH_REG)] = static_cast<uint8_t>(io_dev);
+};
+
+/**
+ * @brief IO control switch
+ * 
+ * @param io_dev - target IO device
+ */
+void bThread::memCap(MemCapa base_addr, MemCapa top_addr, MemCapa permission) {
+	#ifdef EN_AVX
+	if(fcnfg.en_avx){
+        // std::cout << "in en_avx ioSwitch: " << static_cast<int>(io_dev) << std::endl;
+		cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)] = _mm256_set_epi64x(0, 0, static_cast<uint64_t>(top_addr), static_cast<uint64_t>(base_addr));
+	}
+	else
+#endif
+		cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::USER_DATA_REG)] = static_cast<uint32_t>(base_addr);
 };
 
 void bThread::ioSwDbg() {
