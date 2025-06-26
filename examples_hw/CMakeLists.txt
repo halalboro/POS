@@ -353,6 +353,67 @@ if(EXAMPLE STREQUAL "digi_sig")
     create_hw()
 endif()
 
+if(EXAMPLE STREQUAL "audio")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/rle"
+    )
+
+    create_hw()
+endif()
+
+
+if(EXAMPLE STREQUAL "secure_storage")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/aes_cbc_hls"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "secure_storage_2")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
 if(EXAMPLE STREQUAL "digi_module")
     set(BUILD_STATIC 1)
     set(BUILD_SHELL 0)

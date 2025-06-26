@@ -260,9 +260,9 @@ module design_dynamic_top #(
     axis_decoupler inst_host_dcpl_in  (.decouple(decouple_uclk), .s_axis(axis_host_in_s4),    .m_axis(axis_host_in_ul));
     axis_decoupler inst_host_dcpl_out (.decouple(decouple_uclk), .s_axis(axis_host_out_ul), .m_axis(axis_host_out_s4));
 
-    logic [N_REGIONS-1:0][7:0]   io_ctrl_switch;
-    logic [N_REGIONS-1:0][7:0]   route_dtu_in;
-    logic [N_REGIONS-1:0][7:0]   route_dtu_out;
+    logic [N_REGIONS-1:0][13:0]   io_ctrl_switch;
+    logic [N_REGIONS-1:0][13:0]   route_dtu_in;
+    logic [N_REGIONS-1:0][13:0]   route_dtu_out;
     logic [N_REGIONS-1:0][1:0]   port_dtu_in;
     logic [N_REGIONS-1:0][1:0]   port_dtu_out;
 
@@ -271,7 +271,7 @@ module design_dynamic_top #(
     AXI4SR axisr_dtu_in [N_REGIONS] ();
     AXI4SR axisr_dtu_out [N_REGIONS] ();
 
-	axis_data_switch_dtu_3 inst_interconnect (
+	axis_data_switch_ceu_{{ cnfg.n_reg }} inst_interconnect (
         .aclk(aclk), 
         .aresetn(aresetn), 
         .route_in(route_dtu_out), 
@@ -1025,7 +1025,7 @@ module design_dynamic_top #(
 	// ================-----------------------------------------------------------------
 {% for i in range(0, cnfg.n_reg) %}
 
-    dtu_top inst_dtu_top_{{ i }} (
+    ceu_top inst_dtu_top_{{ i }} (
         .aclk                   (aclk),
         .aresetn                (aresetn),
         

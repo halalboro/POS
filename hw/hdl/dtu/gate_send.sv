@@ -38,15 +38,17 @@ module gate_send #(
     input  logic                                aclk,
     input  logic                                aresetn,
 
-    input logic [7:0]                           host_route_cap_in,
+    // input logic [7:0]                           host_route_cap_in,
+    input logic [13:0]                           host_route_cap_in,
 
     input logic [1:0]                           ul_port_in,
-    output logic [7:0]                          route_out
+    // output logic [7:0]                          route_out
+    output logic [13:0]                          route_out
 
 );
 
 
-logic [N_DESTS-1:0][7:0] route_capa_reg;
+logic [N_DESTS-1:0][13:0] route_capa_reg;
 logic [1:0] ul_id; 
 
 always_ff @(posedge aclk) begin
@@ -54,11 +56,6 @@ always_ff @(posedge aclk) begin
   route_capa_reg[ul_id] <= host_route_cap_in; 
   route_out <= route_capa_reg[ul_port_in];
 end
-
-
-// assign ul_id = host_route_cap_in[7:6];
-// assign route_capa_reg[ul_id] = host_route_cap_in;
-// assign route_out = route_capa_reg[ul_port_in];
 
 
 endmodule

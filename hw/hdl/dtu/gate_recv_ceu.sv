@@ -32,22 +32,25 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
-module gate_recv #(
+module gate_recv_ceu #(
     parameter N_DESTS                   = 1
 ) (
     input  logic                                aclk,
     input  logic                                aresetn,
 
-    input logic [7:0]                           host_route_cap_in,
-    input logic [7:0]                           route_in,
+    input logic [13:0]                           host_route_cap_in,
+
+    input logic [13:0]                           route_in,
     output logic [1:0]                          ul_port_out
 );
 
-logic [N_DESTS-1:0][2:0] route_capa_reg;
-logic [2:0] send_ul_id; 
-logic [2:0] send_ul_id_host; 
+
+logic [N_DESTS-1:0][3:0] route_capa_reg;
+logic [3:0] send_ul_id; 
+logic [3:0] send_ul_id_host; 
 logic [1:0] port_id; 
 logic [1:0] port_id_host; 
+logic test;
 
 // getting routing capability from host
 always_ff @(posedge aclk) begin
@@ -58,23 +61,49 @@ always_ff @(posedge aclk) begin
         port_id <= 0;
         port_id_host <= 0;
         ul_port_out <= 0;
+        test <= 0;
     end else begin
-        send_ul_id_host <= host_route_cap_in[4:2];
+        send_ul_id_host <= host_route_cap_in[9:6];
 
         // This needs to be updated to include receiving port id
         // currently it's assuming the receiving port is always 00
         port_id_host <= host_route_cap_in[1:0];
         route_capa_reg[port_id_host] <= send_ul_id_host;
 
-        send_ul_id <= route_in[4:2];
+        send_ul_id <= route_in[9:6];
         port_id <= route_in[1:0];
+        test <= 0;
         // Check if route_in matches the entry in route_capa_reg indexed by route_in[1:0]
         if (send_ul_id == route_capa_reg[port_id]) begin
-            // $display("send_ul_id: %d, route_capa_reg: %d", send_ul_id, route_capa_reg[port_id]);
+            $display("send_ul_id: %d, route_capa_reg: %d", send_ul_id, route_capa_reg[port_id]);
             ul_port_out <= route_in[1:0];
+            test <= 1;
         end
     end
 end
+
+// logic [N_DESTS-1:0][7:0] route_capa_reg;
+// logic [1:0] ul_id; 
+
+// // getting routing capability from host
+// always_ff @(posedge aclk) begin
+//     if (~aresetn) begin
+//         route_capa_reg <= '{default:0};
+//         ul_id <= 0;
+//     end else begin
+//         ul_id <= host_route_cap_in[1:0];
+//         route_capa_reg[ul_id] <= host_route_cap_in;
+//         ul_port_out <= route_in[1:0];
+//     end
+// end
+
+// // getting routing capability from host
+// always_ff @(posedge aclk) begin
+//   ul_id <= host_route_cap_in[1:0];
+//   route_capa_reg[ul_id] <= host_route_cap_in;
+// end
+
+// assign ul_port_out = route_in[1:0];
 
 
 endmodule
