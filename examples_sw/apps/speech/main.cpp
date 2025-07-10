@@ -1,3 +1,10 @@
+/**
+ * Copyright (c) 2021, Systems Group, ETH Zurich
+ * All rights reserved.
+ *
+ * FFT + SVM Pipeline - Converted to use ushell API
+ */
+
 #include <iostream>
 #include <string>
 #include <malloc.h>
@@ -9,176 +16,61 @@
 #include <unistd.h>
 #include <iomanip>
 #include <signal.h>
-#ifdef EN_AVX
-#include <x86intrin.h>
-#endif
 #include <boost/program_options.hpp>
 #include <any>
 #include <cmath>
-#include <random>
-#include <vector>
-#include "cBench.hpp"
-#include "cThread.hpp"
 
-// #define EN_DIRECT_TESTS
-#define EN_INTER_3_TESTS
+// Include our high-level ushell API
+#include "dfg.hpp"
+#include "ushell.hpp"
 
 using namespace std;
 using namespace std::chrono;
 using namespace fpga;
+using namespace ushell;
 
+/* Signal handler */
 std::atomic<bool> stalled(false); 
 void gotInt(int) {
     stalled.store(true);
 }
 
+/* Default parameters */
 constexpr auto const defDevice = 0;
-
-constexpr auto const nRegions = 3;
+constexpr auto const nRegions = 2;
 constexpr auto const defHuge = true;
-constexpr auto const defMappped = true;
+constexpr auto const defMapped = true;
 constexpr auto const defStream = 1;
 constexpr auto const nRepsThr = 1;
 constexpr auto const nRepsLat = 1;
-// constexpr auto const defMinSize = 1 * 1024;
-// constexpr auto const defMaxSize = 1 * 1024 * 1024;
+constexpr auto const defSize = 32;  // Default: single 32-point FFT
 constexpr auto const nBenchRuns = 1;
 
-constexpr auto const targetVfid = 0;  
-constexpr auto const defReps = 1;
-constexpr auto const defSize = 16384 * 2;
-constexpr auto const inputSize1 = defSize * 2 * sizeof(float);     // INPUT SIZE
-constexpr auto const outputSize1 = defSize * 2 * sizeof(float);    // OUTPUT SIZE
-constexpr auto const inputSize2 = outputSize1;    // INPUT SIZE
-constexpr auto const outputSize2 = defSize / 512 * sizeof(float);    // INPUT SIZE
-constexpr auto const inputSize3 = outputSize2;    // INPUT SIZE
-constexpr auto const outputSize3 = defSize / 512 / 32 * sizeof(float);    // INPUT SIZE
-constexpr float const sampleRate = 44100.0f;  // Sample rate in Hz
-
-// Generate sine wave value with improved frequency control
-float generateSineValue(int index, int totalPoints) {
-    const float amplitude = 1000.0f;
-    const float frequency = 256.0f;  // Hz
-    const float phase = 0.0f;
-    
-    float t = (float)index / sampleRate;  // Time in seconds
-    return amplitude * sin(2.0f * M_PI * frequency * t + phase);
+// Helper function to print latency statistics
+void printLatencyStats(double latency_ns) {
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Processing started at: 0 ns" << std::endl;
+    std::cout << "Processing completed at: " << latency_ns << " ns" << std::endl;
+    std::cout << "Total latency: " << latency_ns << " ns (" << (latency_ns / 1000) << " us)" << std::endl;
 }
 
-// Structure to hold complex numbers
-struct Complex {
-    float real;
-    float imag;
-    
-    Complex() : real(0.0f), imag(0.0f) {}
-    Complex(float r, float i) : real(r), imag(i) {}
-    
-    float magnitude() const {
-        return std::sqrt(real * real + imag * imag);
-    }
-    
-    Complex& operator+=(const Complex& other) {
-        real += other.real;
-        imag += other.imag;
-        return *this;
-    }
-    
-    Complex& operator/=(float div) {
-        real /= div;
-        imag /= div;
-        return *this;
-    }
-};
-
-// Improved accumulation function
-void accumulateFFTOutput(float* input, float* output, int size, int accumulateSize) {
-    const int numBins = size / accumulateSize;
-    std::vector<float> sumMagnitudes(numBins, 0.0f);
-    std::vector<int> countPerBin(numBins, 0);
-    
-    // First pass: calculate average magnitude per bin
-    for(int i = 0; i < size/2; i++) {  // Only process up to Nyquist frequency
-        int accIndex = i / accumulateSize;
-        if(accIndex >= numBins) break;
-        
-        float real = input[2*i];
-        float imag = input[2*i+1];
-        float mag = std::sqrt(real * real + imag * imag);
-        
-        sumMagnitudes[accIndex] += mag;
-        countPerBin[accIndex]++;
-    }
-    
-    // Calculate scaled averages with improved scaling
-    const float baseScaling = 100.0f;
-    for(int i = 0; i < numBins; i++) {
-        if(countPerBin[i] > 0) {
-            float avgMagnitude = sumMagnitudes[i] / countPerBin[i];
-            // Apply logarithmic scaling for better dynamic range
-            output[i] = baseScaling * std::log10(1.0f + avgMagnitude);
-        } else {
-            output[i] = 0.0f;
-        }
-    }
+// Helper function to print header
+void print_header(const std::string& header) {
+    std::cout << "\n-- \033[31m\e[1m" << header << "\033[0m\e[0m" << std::endl;
+    std::cout << "-----------------------------------------------" << std::endl;
 }
 
-// Function to calculate and print frequency analysis
-void printFrequencyAnalysis(float* output, int numBins, float sampleRate) {
-    std::cout << "\nFrequency Analysis:\n";
-    std::cout << "Bin\tFreq Range (Hz)\tMagnitude\n";
-    std::cout << "--------------------------------\n";
-    
-    float binWidth = (sampleRate/2) / numBins;
-    
-    for(int i = 0; i < numBins; i++) {
-        float startFreq = i * binWidth;
-        float endFreq = (i + 1) * binWidth;
-        std::cout << i << "\t" 
-                  << std::fixed << std::setprecision(1) 
-                  << startFreq << "-" << endFreq << "\t\t"
-                  << std::setprecision(2) << output[i] << "\n";
-    }
-}
-
-// Process and print FFT results
-void processAndPrintFFTResults(float* output_ptr, int size, int accumulateSize) {
-    // Print raw FFT around interesting region
-    std::cout << "\nRaw FFT values around peak region (indices 15-25):\n";
-    for(int j = 15; j < 25; j++) {
-        std::cout << "Bin " << std::setw(2) << j << ": (" 
-                 << std::setw(10) << std::fixed << std::setprecision(6) << output_ptr[2*j]
-                 << ", " << std::setw(10) << output_ptr[2*j+1] << "i) "
-                 << "mag: " << std::sqrt(output_ptr[2*j]*output_ptr[2*j] + 
-                                       output_ptr[2*j+1]*output_ptr[2*j+1]) << "\n";
-    }
-    
-    const int numBins = size / accumulateSize;
-    std::vector<float> accumulated(numBins, 0.0f);
-    
-    // Accumulate FFT output with improved scaling
-    accumulateFFTOutput(output_ptr, accumulated.data(), size, accumulateSize);
-    
-    // Copy accumulated values back to output buffer
-    memcpy(output_ptr, accumulated.data(), numBins * sizeof(float));
-    
-    // Print frequency analysis
-    printFrequencyAnalysis(output_ptr, numBins, sampleRate);
-}
-
-int main(int argc, char *argv[])  
-{
-    // ---------------------------------------------------------------
-    // Args 
-    // ---------------------------------------------------------------
-
-    // Sig handler
+int main(int argc, char *argv[]) {
+    // Signal handler setup
     struct sigaction sa;
-    memset( &sa, 0, sizeof(sa) );
+    memset(&sa, 0, sizeof(sa));
     sa.sa_handler = gotInt;
     sigfillset(&sa.sa_mask);
-    sigaction(SIGINT,&sa,NULL);
+    sigaction(SIGINT, &sa, NULL);
 
-    // Read arguments
+    // ---------------------------------------------------------------
+    // Command Line Arguments
+    // ---------------------------------------------------------------
     boost::program_options::options_description programDescription("Options:");
     programDescription.add_options()
         ("bitstream,b", boost::program_options::value<string>(), "Shell bitstream")
@@ -188,27 +80,26 @@ int main(int argc, char *argv[])
         ("mapped,m", boost::program_options::value<bool>(), "Mapped / page fault")
         ("stream,t", boost::program_options::value<bool>(), "Streaming interface")
         ("repst,r", boost::program_options::value<uint32_t>(), "Number of repetitions (throughput)")
-        ("repsl,l", boost::program_options::value<uint32_t>(), "Number of repetitions (latency)");
-
+        ("repsl,l", boost::program_options::value<uint32_t>(), "Number of repetitions (latency)")
+        ("size,s", boost::program_options::value<uint32_t>(), "Total samples (must be multiple of 32)")
+        ("reps,n", boost::program_options::value<uint32_t>(), "Number of repetitions");
     
     boost::program_options::variables_map commandLineArgs;
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, programDescription), commandLineArgs);
     boost::program_options::notify(commandLineArgs);
 
+    // Parse arguments with defaults
     string bstream_path = "";
-    uint32_t cs_dev = defDevice; 
+    uint32_t cs_dev = defDevice;
     uint32_t n_regions = nRegions;
     bool huge = defHuge;
-    bool mapped = defMappped;
+    bool mapped = defMapped;
     bool stream = defStream;
     uint32_t n_reps_thr = nRepsThr;
     uint32_t n_reps_lat = nRepsLat;
-
     uint32_t size = defSize;
-    uint32_t n_reps = nRepsLat;
-    uint32_t n_pages = (inputSize1 + hugePageSize - 1) / hugePageSize;
-    uint32_t curr_size = inputSize1;
-
+    
+    // Process command line arguments
     if(commandLineArgs.count("bitstream") > 0) { 
         bstream_path = commandLineArgs["bitstream"].as<string>();
         
@@ -223,171 +114,190 @@ int main(int argc, char *argv[])
     if(commandLineArgs.count("stream") > 0) stream = commandLineArgs["stream"].as<bool>();
     if(commandLineArgs.count("repst") > 0) n_reps_thr = commandLineArgs["repst"].as<uint32_t>();
     if(commandLineArgs.count("repsl") > 0) n_reps_lat = commandLineArgs["repsl"].as<uint32_t>();
+    if(commandLineArgs.count("size") > 0) size = commandLineArgs["size"].as<uint32_t>();
 
-    PR_HEADER("PARAMS");
+    // Ensure size is a multiple of 32 (FFT requirement)
+    if (size % 32 != 0) {
+        std::cout << "Warning: Size must be multiple of 32. Adjusting " << size 
+                  << " to " << ((size + 31) / 32) * 32 << std::endl;
+        size = ((size + 31) / 32) * 32;
+    }
+
+    // Calculate buffer requirements correctly
+    uint32_t num_ffts = size / 32;  // Number of 32-point FFTs
+    
+    // Input: complex (interleaved real/imaginary) for FFT
+    uint32_t complex_samples = 2 * size;  // Each sample becomes [real, imag]
+    uint32_t input_buffer_size = complex_samples * sizeof(float);
+    
+    // Intermediate: FFT results (same size as input, complex output)
+    uint32_t fft_output_size = input_buffer_size;
+    
+    // Output: one classification per 32-point FFT
+    uint32_t svm_output_size = num_ffts * sizeof(float);
+
+    print_header("PARAMS");
     std::cout << "Number of regions: " << n_regions << std::endl;
     std::cout << "Hugepages: " << huge << std::endl;
     std::cout << "Mapped pages: " << mapped << std::endl;
     std::cout << "Streaming: " << (stream ? "HOST" : "CARD") << std::endl;
     std::cout << "Number of repetitions (thr): " << n_reps_thr << std::endl;
     std::cout << "Number of repetitions (lat): " << n_reps_lat << std::endl;
-    std::cout << "Starting transfer size: " << curr_size << std::endl;
+    std::cout << "Total samples: " << size << " (" << num_ffts << " x 32-point FFTs)" << std::endl;
+    std::cout << "Input buffer size: " << input_buffer_size << " bytes" << std::endl;
+    std::cout << "FFT output size: " << fft_output_size << " bytes" << std::endl;
+    std::cout << "SVM output size: " << svm_output_size << " bytes" << std::endl;
+    std::cout << "Expected classifications: " << num_ffts << std::endl;
 
-
-    // ---------------------------------------------------------------
-    // Init 
-    // ---------------------------------------------------------------
-
-    // Handles
-    std::vector<std::unique_ptr<cThread<std::any>>> cthread; // Coyote threads
-    // void* hMem[n_regions];
-
-    void* input_buffers[n_regions];
-    void* output_buffers[n_regions];
-
-    std::vector<float> test_data(size);
-
-    // Generate test data
-    std::cout << "\nFirst 32 input values:\n";
-    for (int i = 0; i < size; ++i) {
-        test_data[i] = generateSineValue(i, size);
-        if (i < 32) {
-            std::cout << std::fixed << std::setprecision(6) << test_data[i] << " ";
-            if ((i + 1) % 8 == 0) std::cout << "\n";
+    try {
+        // ---------------------------------------------------------------
+        // Dataflow Setup using ushell's fluent API
+        // ---------------------------------------------------------------
+        print_header("DATAFLOW SETUP");
+        
+        // Create an FFT + SVM dataflow
+        Dataflow fft_svm_dataflow("fft_svm_dataflow");
+        
+        // Create processing tasks
+        Task& fft_processor = fft_svm_dataflow.add_task("fft_processor", "signal_processing");
+        Task& svm_classifier = fft_svm_dataflow.add_task("svm_classifier", "machine_learning");
+        
+        // Create buffers
+        Buffer& signal_input_buffer = fft_svm_dataflow.add_buffer(input_buffer_size, "signal_input_buffer");
+        Buffer& fft_output_buffer = fft_svm_dataflow.add_buffer(fft_output_size, "fft_output_buffer");
+        Buffer& classification_buffer = fft_svm_dataflow.add_buffer(svm_output_size, "classification_buffer");
+        
+        // Set up the FFT + SVM pipeline using fluent API
+        fft_svm_dataflow.to(signal_input_buffer, fft_processor.in)
+                       .to(fft_processor.out, fft_output_buffer)
+                       .to(fft_output_buffer, svm_classifier.in)
+                       .to(svm_classifier.out, classification_buffer);
+        
+        std::cout << "Creating FFT + SVM dataflow:" << std::endl;
+        std::cout << "  signal_input_buffer → fft_processor → fft_output_buffer → svm_classifier → classification_buffer" << std::endl;
+        
+        // Check and build the dataflow
+        if (!fft_svm_dataflow.check()) {
+            throw std::runtime_error("Failed to validate dataflow");
         }
-    }
-    std::cout << "\n";
+        
+        // ---------------------------------------------------------------
+        // Data Generation and Buffer Initialization
+        // ---------------------------------------------------------------
+        print_header("DATA GENERATION");
+        
+        // Generate test data that will produce known SVM results after FFT
+        // Use the same base pattern that works in your SVM-only test, but apply it per FFT
+        float base_pattern[32] = {
+            36257662.0f, 70308074.0f, 162763557.0f, 109956489.0f, 86125933.0f,
+            35535698.0f, 5473712.0f, 2191429.0f, 1655529.0f, 1427210.0f,
+            1819290.0f, 2594503.0f, 2649694.0f, 849597.0f, 765175.0f,
+            890647.0f, 1405332.0f, 1132804.0f, 5776375.0f, 18372118.0f,
+            6724989.0f, 7313762.0f, 1469345.0f, 1744257.0f, 1631652.0f,
+            823229.0f, 1018674.0f, 639273.0f, 601445.0f, 630083.0f,
+            678854.0f, 636897.0f
+        };
 
-    auto input_size_array = std::array{inputSize1, inputSize2, inputSize3};
-    auto output_size_array = std::array{outputSize1, outputSize2, outputSize3};
-
-    // Obtain resources
-    for (int i = 0; i < n_regions; i++) {
-        cthread.emplace_back(new cThread<std::any>(i, getpid(), cs_dev));
-        input_buffers[i] = cthread[i]->getMem({CoyoteAlloc::HPF, (uint32_t)input_size_array[i]});
-        output_buffers[i] = cthread[i]->getMem({CoyoteAlloc::HPF, (uint32_t)output_size_array[i]});
-
-        if (!input_buffers[i] || !output_buffers[i]) {
-            throw std::runtime_error("Memory allocation failed");
+        // Show first FFT input data
+        std::cout << "\nFirst 32-point FFT input (complex format):\n";
+        for (int i = 0; i < 16; ++i) {  // Show first 16 complex pairs
+            std::cout << std::fixed << std::setprecision(1) 
+                      << base_pattern[i] << "+0.0i ";
+            if ((i + 1) % 4 == 0) std::cout << "\n";
         }
+        std::cout << "... (remaining 16 samples omitted)\n\n";
 
-        memset(input_buffers[i], 0, (uint32_t)input_size_array[i]);
-        memset(output_buffers[i], 0, (uint32_t)output_size_array[i]);
-    }
-
-    // Initialize input data
-    memcpy(input_buffers[0], test_data.data(), size * sizeof(float));
-    // memcpy(input_buffers[1], test_data.data(), size * sizeof(float));
-    // memcpy(input_buffers[2], test_data.data(), size * sizeof(float));
-
-    sgEntry sg[n_regions];
-
-    for(int i = 0; i < n_regions; i++) {
-        // SG entries
-        memset(&sg[i], 0, sizeof(localSg));
-        sg[i].local.src_addr = input_buffers[i]; sg[i].local.src_stream = stream;
-        sg[i].local.dst_addr = output_buffers[i]; sg[i].local.dst_stream = stream;
-    }
-
-
-#ifdef EN_DIRECT_TESTS
-    // // direct connection for each vFPGA
-    // sg[0].local.src_len = inputSize1;
-    // sg[0].local.dst_len = outputSize1; 
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_3_TO_HOST_0);
-    // cthread[0]->ioSwDbg();
-    // sg[1].local.src_len = inputSize2;
-    // sg[1].local.dst_len = outputSize2; 
-    // sg[1].local.offset_r = 0;
-    // sg[1].local.offset_w = 0;
-    // cthread[1]->ioSwitch(IODevs::Inter_3_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
-    // sg[2].local.src_len = inputSize3;
-    // sg[2].local.dst_len = outputSize3; 
-    // sg[2].local.offset_r = 0;
-    // sg[2].local.offset_w = 0;
-    // cthread[2]->ioSwitch(IODevs::Inter_3_TO_HOST_2);
-    // cthread[2]->ioSwDbg();
-#endif
-
-#ifdef EN_INTER_3_TESTS
-    sg[0].local.src_len = inputSize1;
-    sg[0].local.dst_len = outputSize1; 
-    sg[0].local.offset_r = 0;
-    sg[0].local.offset_w = 6;
-    cthread[0]->ioSwitch(IODevs::Inter_3_TO_DTU_1);
-    cthread[0]->ioSwDbg();
-    sg[1].local.src_len = inputSize2;
-    sg[1].local.dst_len = outputSize2; 
-    sg[1].local.offset_r = 6;
-    sg[1].local.offset_w = 6;
-    cthread[1]->ioSwitch(IODevs::Inter_3_TO_DTU_2);
-    cthread[1]->ioSwDbg();
-    sg[2].local.src_len = inputSize3;
-    sg[2].local.dst_len = outputSize3; 
-    sg[2].local.offset_r = 6;
-    sg[2].local.offset_w = 0;
-    cthread[2]->ioSwitch(IODevs::Inter_3_TO_HOST_2);
-    cthread[2]->ioSwDbg();
-#endif
-
-    cBench bench(nBenchRuns);
-    uint32_t n_runs;
-
-    PR_HEADER("FFT PROCESSING");
-    while(curr_size <= inputSize1) {
-
-        // Prep for latency test
-        for(int i = 0; i < n_regions; i++) {
-            cthread[i]->clearCompleted();
+        // Create input data vector
+        std::vector<float> input_data(complex_samples);
+        
+        // Fill complex data for FFT input
+        // Each FFT gets a different variant of the base pattern
+        for(int fft_idx = 0; fft_idx < num_ffts; fft_idx++) {
+            for(int sample = 0; sample < 32; sample++) {
+                int complex_base = (fft_idx * 32 + sample) * 2;
+                
+                // Real part: base pattern + offset per FFT
+                input_data[complex_base] = base_pattern[sample] + (fft_idx * 1000.0f);
+                
+                // Imaginary part: zero (pure real signal)
+                input_data[complex_base + 1] = 0.0f;
+            }
         }
-        n_runs = 0;
-
-        // Latency test
-        auto benchmark_lat = [&]() {
-            // Transfer the data
-            for(int i = 0; i < n_reps_lat; i++) {
-
-#ifdef EN_DIRECT_TESTS
-                for(int j = 0; j < 2; j++) {
-                    cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
-                    while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
-                        if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
-                }
-#endif
-
-#ifdef EN_INTER_3_TESTS
-                cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
-                cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
-                cthread[2]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[2], {true, true, false});
-                while(cthread[2]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
-                    if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
-#endif
+        
+        // Write input data to buffer
+        write_dataflow_buffer(signal_input_buffer, input_data.data(), input_buffer_size);
+        std::cout << "Initialized input buffer with " << size << " complex samples (" << num_ffts << " FFTs)" << std::endl;
+        
+        // ---------------------------------------------------------------
+        // Performance Benchmarking
+        // ---------------------------------------------------------------
+        print_header("FFT + SVM PROCESSING");
+        
+        // Create benchmark object
+        cBench bench(nBenchRuns);
+        
+        fft_svm_dataflow.clear_completed();
+        
+        auto benchmark_thr = [&]() {
+            for (int i = 0; i < n_reps_lat; i++) {
+                fft_svm_dataflow.execute(input_buffer_size);
             }
         };
-        bench.runtime(benchmark_lat);
 
-        std::cout << "Size: " << std::setw(8) << curr_size << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps_lat) << " ns" << std::endl;
-        std::cout << "size: " << curr_size << std::endl;
+        bench.runtime(benchmark_thr);
 
-        curr_size *= 2;
-    }
+        // Print basic results
+        std::cout << std::fixed << std::setprecision(2);
+        std::cout << "Size: " << std::setw(8) << size << ", thr: " 
+                  << std::setw(8) << (1000 * input_buffer_size) / (bench.getAvg() / n_reps_lat) 
+                  << " MB/s" << std::endl << std::endl;
 
+        // Print latency statistics
+        print_header("LATENCY MEASUREMENTS");
+        printLatencyStats(bench.getAvg() / n_reps_lat);
 
-    // Cleanup
-    for(int i = 0; i < n_reps; i++) {
-        cthread[i]->printDebug();
-        if(input_buffers[i]) {
-            cthread[i]->freeMem(input_buffers[i]);
-            input_buffers[i] = nullptr;
+        // ---------------------------------------------------------------
+        // Results Verification
+        // ---------------------------------------------------------------
+        print_header("RESULTS");
+        
+        // Read the classification results
+        std::vector<float> classification_results(num_ffts);
+        read_dataflow_buffer(classification_buffer, classification_results.data(), svm_output_size);
+        
+        // Print all classification results
+        std::cout << "Classification results:\n";
+        for (uint32_t fft_idx = 0; fft_idx < num_ffts; fft_idx++) {
+            float result = classification_results[fft_idx];
+            std::cout << "  FFT " << (fft_idx + 1) << "/" << num_ffts << ": " << result;
+            
+            // Map result to class label if it matches known values
+            uint32_t result_bits = *(uint32_t*)&result;
+            switch(result_bits) {
+                case 0x40800000: std::cout << " (Class 4)"; break;
+                case 0x3F800000: std::cout << " (Class 1)"; break;
+                case 0x40000000: std::cout << " (Class 2)"; break;
+                case 0x40400000: std::cout << " (Class 3)"; break;
+                case 0x40A00000: std::cout << " (Class 5)"; break;
+                default: 
+                    if (result == 0.0f) std::cout << " (No result - check pipeline)";
+                    else std::cout << " (Unknown class)";
+                    break;
+            }
+            std::cout << std::endl;
         }
-        if(output_buffers[i]) {
-            cthread[i]->freeMem(output_buffers[i]);
-            output_buffers[i] = nullptr;
-        }
+        
+        // ---------------------------------------------------------------
+        // Resource Cleanup (Automatic with RAII)
+        // ---------------------------------------------------------------
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
-
+    
+    print_header("FFT + SVM PROCESSING COMPLETE");
+    std::cout << "Signal processing and classification dataflow executed successfully!" << std::endl;
+    
     return EXIT_SUCCESS;
 }

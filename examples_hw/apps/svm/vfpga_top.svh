@@ -36,7 +36,7 @@ import lynxTypes::*;
     end
     
     // Input width converter (512->32)
-    dwidth_converter_512_32_3 inst_dwidth_recv (
+    dwidth_converter_512_32 inst_dwidth_recv (
         .aclk(aclk),
         .aresetn(aresetn),
         .s_axis_tvalid(axis_sink_int.tvalid),
@@ -66,7 +66,7 @@ import lynxTypes::*;
     );
 
     // Output width converter (32->512)
-    dwidth_converter_32_512_3 inst_dwidth_send (
+    dwidth_converter_32_512 inst_dwidth_send (
         .aclk(aclk),
         .aresetn(aresetn),
         .s_axis_tvalid(dwidth_out_tvalid),

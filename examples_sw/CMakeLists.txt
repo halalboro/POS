@@ -65,61 +65,6 @@ if(EXAMPLE STREQUAL "pipeline")
     message("** Example: Validation tests - Link perf")
 endif()
 
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "1dfft")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/1dfft")
-    message("** Example: Test 1dfft app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "fft2svm")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/fft2svm")
-    message("** Example: Test fft2svm app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "sha2")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/sha2")
-    message("** Example: Test sha2 app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "rsa")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rsa")
-    message("** Example: Test rsa app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "pipe_svm")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/svm")
-    message("** Example: Test svm app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "digi")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi")
-    message("** Example: Test digi pipeline app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "speech")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech")
-    message("** Example: Test speech pipeline app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "digi_base")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi_base")
-    message("** Example: Test digi baseline app")
-endif()
-
-# Used in conjunction with the microshell
-if(EXAMPLE STREQUAL "speech_base")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech_base")
-    message("** Example: Test speech baseline app")
-endif()
-
-
 # FPGA perf benchmark
 if(EXAMPLE STREQUAL "perf_fpga")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_fpga")
@@ -157,11 +102,6 @@ if(EXAMPLE STREQUAL "multithreading")
     message("** Example: Multithreading")
 endif()
 
-if(EXAMPLE STREQUAL "svm")
-    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/multithreading_svm")
-    message("** Example: SVM Multithreading")
-endif()
-
 # Kmeans example (unified memory)
 if(EXAMPLE STREQUAL "kmeans")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/kmeans")
@@ -186,6 +126,75 @@ if(EXAMPLE STREQUAL "tcp_iperf")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/tcp_iperf")
     message("**  Example: TCP - iperf")
 endif()
+
+# Application examples
+
+# 1DFFT
+if(EXAMPLE STREQUAL "1dfft")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/1dfft")
+    message("** Example: 1DFFT App")
+endif()
+
+# AES-CTR
+if(EXAMPLE STREQUAL "aes_ctr")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/aes_ctr")
+    message("** Example: AES-CTR App")
+endif()
+
+# RLE
+if(EXAMPLE STREQUAL "rle")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rle")
+    message("** Example: RLE App")
+endif()
+
+# RSA
+if(EXAMPLE STREQUAL "rsa")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rsa")
+    message("** Example: RSA App")
+endif()
+
+# SHA2
+if(EXAMPLE STREQUAL "sha2")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/sha2")
+    message("** Example: SHA2 App")
+endif()
+
+# SVM
+if(EXAMPLE STREQUAL "svm")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/svm")
+    message("** Example: SVM App")
+endif()
+
+# Audio Processing
+if(EXAMPLE STREQUAL "audio")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/audio")
+    message("** Example: Audio Processing App")
+endif()
+
+# Digital Signature App
+if(EXAMPLE STREQUAL "digi_sign")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi_sign")
+    message("** Example: Digital Signature App")
+endif()
+
+# Secure Storage App
+if(EXAMPLE STREQUAL "secure")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/secure")
+    message("** Example: Secure Storage App")
+endif()
+
+# Secure Storage 2 App
+if(EXAMPLE STREQUAL "secure2")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/secure2")
+    message("** Example: Secure Storage 2 App")
+endif()
+
+# Speech Recognition App
+if(EXAMPLE STREQUAL "speech")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech")
+    message("** Example: Speech Recognition App")
+endif()
+
 
 #
 # Create build targets

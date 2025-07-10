@@ -1,23 +1,22 @@
 /**
- * VFPGA Top Module with FFT Pipeline
- *
+ * VFPGA Top Module
  */
 import lynxTypes::*;
 
-// Interface declarations for pipeline stages
+// Interface declarations
 AXI4SR axis_sink_int ();
 AXI4SR axis_src_int ();
 
-// Stream routing with proper interface connections
+// Host stream routing
 axisr_reg inst_reg_sink (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_host_recv[0]), .m_axis(axis_sink_int));
 axisr_reg inst_reg_src (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_src_int), .m_axis(axis_host_send[0]));
 
-// FFT module instantiation
-fft_top inst_fft (
-    .axis_sink(axis_sink_int),
-    .axis_src(axis_src_int),
-    .aclk(aclk),
-    .aresetn(aresetn)
+// RLE
+rle_top inst_rle (
+    .axis_sink      (axis_sink_int),
+    .axis_src       (axis_src_int),
+    .aclk           (aclk),
+    .aresetn        (aresetn)
 );
 
 // Tie off unused interfaces
