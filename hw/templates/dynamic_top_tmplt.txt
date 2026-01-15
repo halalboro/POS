@@ -265,17 +265,28 @@ module design_dynamic_top #(
     AXI4S axis_host_out_ul [N_REGIONS] ();
 
     logic [N_REGIONS-1:0][7:0]   io_ctrl_switch;
-    AXI4S axis_host_in_shell [N_REGIONS] ();
-    AXI4S axis_host_out_shell [N_REGIONS] ();
+//    AXI4S axis_host_in_shell [N_REGIONS] ();
+//    AXI4S axis_host_out_shell [N_REGIONS] ();
 
-    axis_decoupler inst_host_dcpl_in  (.decouple(decouple_uclk), .s_axis(axis_host_in_s4),    .m_axis(axis_host_in_shell));
-    axis_decoupler inst_host_dcpl_out (.decouple(decouple_uclk), .s_axis(axis_host_out_shell), .m_axis(axis_host_out_s4));
+    AXI4SR axis_inter_in_ul [N_REGIONS] ();
+    AXI4SR axis_inter_out_ul [N_REGIONS] ();
 
-	axis_data_interconnect inst_interconnect (.aclk(aclk), .aresetn(aresetn), .io_ctrl(io_ctrl_switch), 
-        .data_shell_in(axis_host_in_shell),
-        .data_shell_out(axis_host_out_shell),
-        .data_ul_out(axis_host_out_ul),
-        .data_ul_in(axis_host_in_ul)
+//    axis_decoupler inst_host_dcpl_in  (.decouple(decouple_uclk), .s_axis(axis_host_in_s4),    .m_axis(axis_host_in_shell));
+//    axis_decoupler inst_host_dcpl_out (.decouple(decouple_uclk), .s_axis(axis_host_out_shell), .m_axis(axis_host_out_s4));
+
+    axis_decoupler inst_host_dcpl_in  (.decouple(decouple_uclk), .s_axis(axis_host_in_s4),    .m_axis(axis_host_in_ul));
+    axis_decoupler inst_host_dcpl_out (.decouple(decouple_uclk), .s_axis(axis_host_out_ul), .m_axis(axis_host_out_s4));
+
+//	axis_data_interconnect inst_interconnect (.aclk(aclk), .aresetn(aresetn), .io_ctrl(io_ctrl_switch), 
+//        .data_shell_in(axis_host_in_shell),
+//        .data_shell_out(axis_host_out_shell),
+//        .data_ul_out(axis_inter_out_ul),
+//        .data_ul_in(axis_inter_in_ul)
+//    );
+
+	axis_data_switch_2 inst_interconnect (.aclk(aclk), .aresetn(aresetn), .io_ctrl(io_ctrl_switch), 
+        .data_ul_out(axis_inter_out_ul),
+        .data_ul_in(axis_inter_in_ul)
     );
 
 {% endif %}	
@@ -1091,6 +1102,20 @@ module design_dynamic_top #(
         .axis_host_src_tlast            (axis_host_out_ul[{{ i }}].tlast),
         .axis_host_src_tready           (axis_host_out_ul[{{ i }}].tready),
         .axis_host_src_tvalid           (axis_host_out_ul[{{ i }}].tvalid),
+
+        // // INTER STREAMS
+        .axis_inter_sink_tdata           (axis_inter_in_ul[{{ i }}].tdata),
+        .axis_inter_sink_tkeep           (axis_inter_in_ul[{{ i }}].tkeep),
+        .axis_inter_sink_tlast           (axis_inter_in_ul[{{ i }}].tlast),
+        .axis_inter_sink_tready          (axis_inter_in_ul[{{ i }}].tready),
+        .axis_inter_sink_tvalid          (axis_inter_in_ul[{{ i }}].tvalid),
+        .axis_inter_sink_tid             (axis_inter_in_ul[{{ i }}].tid),
+        .axis_inter_src_tdata            (axis_inter_out_ul[{{ i }}].tdata),
+        .axis_inter_src_tkeep            (axis_inter_out_ul[{{ i }}].tkeep),
+        .axis_inter_src_tlast            (axis_inter_out_ul[{{ i }}].tlast),
+        .axis_inter_src_tready           (axis_inter_out_ul[{{ i }}].tready),
+        .axis_inter_src_tvalid           (axis_inter_out_ul[{{ i }}].tvalid),
+        .axis_inter_src_tid              (axis_inter_out_ul[{{ i }}].tid),
 {% endif %}
 {% if cnfg.en_mem %}
         // CARD STREAMS
