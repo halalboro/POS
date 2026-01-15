@@ -168,8 +168,8 @@ public:
 	 * @brief IO control switch 
 	 */
 	void ioSwitch(IODevs io_dev);
+	
 	void ioSwDbg();
-
 	/**
 	 * @brief Invoke a transfer of data 
 	 * coper - Coyote Operation (i.e. a LOCAL_WRITE or a REMOTE_RDMA_WRITE)

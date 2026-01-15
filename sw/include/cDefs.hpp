@@ -39,9 +39,19 @@ using namespace std::chrono_literals;
 
 namespace coyote {
 
+<<<<<<< HEAD
 ///////////////////////////////////////////////////
 //                  IOCTL CALLS                 //
 //////////////////////////////////////////////////
+=======
+// ======-------------------------------------------------------------------------------
+// Macros
+// ======-------------------------------------------------------------------------------
+//#define VERBOSE_DEBUG_1 // Handle
+//#define VERBOSE_DEBUG_2 // Reconfig
+#define VERBOSE_DEBUG_3 // Perf
+#define VERBOSE         // Debug
+>>>>>>> 9e4c9e1c (update host applications)
 
 // Register Coyote thread for a vFPGA
 #define IOCTL_REGISTER_CTID                 _IOW('F', 1, unsigned long)
@@ -116,11 +126,36 @@ namespace coyote {
 // Retrieve static statistics for the XDMA core
 #define IOCTL_STATIC_XDMA_STATS             _IOR('P', 6, unsigned long)
 
+<<<<<<< HEAD
 #define BUFF_NEEDS_EXP_SYNC_RET_CODE 99
 
 ///////////////////////////////////////////////////
 //              CONTROL REGISTERS               //
 //////////////////////////////////////////////////
+=======
+/* Control reg */
+// Values, masks, bits etc. for dealing with the control registers 
+#define CTRL_OPCODE_OFFS                    (0)
+#define CTRL_MODE                           (1UL << 5) // 32
+#define CTRL_RDMA                           (1UL << 6) // 64
+#define CTRL_REMOTE                         (1UL << 7) // 128 
+#define CTRL_STRM_OFFS                      (8)
+#define CTRL_PID_OFFS                       (10)
+#define CTRL_DEST_OFFS                      (16)
+#define CTRL_LAST                           (1UL << 20) // 1048576
+#define CTRL_START                          (1UL << 21) // 2097152
+#define CTRL_CLR_STAT                       (1UL << 22) // 4194304
+#define CTRL_LEN_OFFS                       (32)
+#define CTRL_OFFS_OFFS                      (56)        // 120-64
+
+#define CTRL_OPCODE_MASK                    0x1f
+#define CTRL_STRM_MASK                      0x3
+#define CTRL_DEST_MASK                      0xf
+#define CTRL_PID_MASK                       0x3f
+#define CTRL_VFID_MASK                      0xf
+#define CTRL_LEN_MASK                       0xffffffff
+#define CTRL_OFFS_MASK                      0x3f
+>>>>>>> 9e4c9e1c (update host applications)
 
 #define PID_BITS                            6
 #define VFID_BITS                           4
@@ -206,6 +241,48 @@ enum class CoyoteAlloc {
 
 /* IO devices */
 enum class IODevs : uint8_t {
+
+    Inter_3_TO_HOST_0  = 0b00000000,
+    Inter_3_TO_HOST_1  = 0b00100000,
+    Inter_3_TO_HOST_2  = 0b01000000,
+    Inter_3_TO_DTU_0   = 0b01100000,
+    Inter_3_TO_DTU_1   = 0b10000000,
+    Inter_3_TO_DTU_2   = 0b10100000,
+
+    Inter_2_TO_HOST_0  = 0b00000000,
+    Inter_2_TO_HOST_1  = 0b00100000,
+    Inter_2_TO_DTU_0   = 0b01000000,
+    Inter_2_TO_DTU_1   = 0b01100000,
+
+    Inter_TO_HOST_0  = 0b00000000,
+    Inter_TO_HOST_1  = 0b00001000,
+    Inter_TO_DTU_0   = 0b00010000,
+    Inter_TO_DTU_1   = 0b00011000,
+
+    Inter_HOST_TO_HOST_0  = 0b00000000,
+    Inter_HOST_TO_HOST_1  = 0b00000001,
+    Inter_HOST_TO_DTU_0  = 0b00000010,
+    Inter_HOST_TO_DTU_1  = 0b00000011,
+
+    Inter_DTU_TO_HOST_0  = 0b00000000,
+    Inter_DTU_TO_HOST_1  = 0b00000100,
+    Inter_DTU_TO_DTU_0  = 0b00001000,
+    Inter_DTU_TO_DTU_1  = 0b00001100,
+
+
+    Inter_DTU_TO_0_DTU  = 0b00000000,
+    Inter_DTU_TO_1_DTU  = 0b00000001,
+    Inter_DTU_TO_0_USER = 0b00000010,
+    Inter_DTU_TO_1_USER = 0b00000011,
+
+    Inter_USER_TO_0_DTU  = 0b00000000,
+    Inter_USER_TO_1_DTU  = 0b00000100,
+    Inter_USER_TO_0_USER = 0b00001000,
+    Inter_USER_TO_1_USER = 0b00001100,
+
+    Inter_TO_0_USER = 0b00000010,
+    Inter_TO_1_USER = 0b00000011,
+
     ALL_DIRECT = 0b00000000,
     Inter_TO_0 = 0b00000000,
     Inter_TO_1 = 0b00000001,
@@ -238,6 +315,7 @@ enum class CnfgAvxRegs : uint32_t {
     TCP_OPEN_PORT_STAT_REG = 13,
     TCP_OPEN_CONN_REG = 14,
     TCP_OPEN_CONN_STAT_REG = 15,
+    IO_SWITCH_REG = 53,
     STAT_DMA_REG = 64
 };
 
@@ -280,6 +358,7 @@ enum class CnfgLegRegs : uint32_t {
     RDMA_CONN_REG_2 = 46,
     TCP_OPEN_PORT_REG = 48,
     TCP_OPEN_PORT_STAT_REG = 52,
+    IO_SWITCH_REG = 53,
     TCP_OPEN_CONN_REG = 56,
     TCP_OPEN_CONN_STAT_REG = 60,
     STAT_DMA_REG = 64,
@@ -490,8 +569,83 @@ typedef struct __attribute__((packed)) {
  * @brief Shell configuration, as set in CMake for hardware synthesis
  * NOTE: The description of each variable can be found in cmake/FindCoyoteHW.cmake
  */
+<<<<<<< HEAD
  struct fpgaCnfg {
     /// AVX enabled
+=======
+
+// Simplemost form: Just a start address 
+struct syncSg {
+    // Buffer
+    void* addr = { nullptr };
+};
+
+// Local SG-entry: addr, len, stream and dest for both source and destination. Not sure what stream and destination means in this context. 
+struct localSg {
+    // Src
+    void* src_addr = { nullptr };
+    uint32_t src_len = { 0 };
+    uint32_t src_stream = { strmHost };
+    uint32_t src_dest = { 0 };
+
+    // Dst
+    void* dst_addr = { nullptr };
+    uint32_t dst_len = { 0 };
+    uint32_t dst_stream = { strmHost };
+    uint32_t dst_dest = { 0 };
+
+    uint32_t offset_r = { 0 };
+    uint32_t offset_w = { 0 };
+
+};
+
+// RDMA SG-entry: Offset and Destination for both local and remote, stream for local as well 
+// Why is the rdmaSg missing a src_addr (and why is it not a pointer?)
+struct rdmaSg {
+    // Open questions: What is local_dest and remote_dest? Why is there even local and remote? 
+
+    // Local
+    uint64_t local_offs = { 0 };
+    uint32_t local_stream = { strmHost };
+    uint32_t local_dest = { 0 };
+
+    // Remote
+    uint64_t remote_offs = {0 };
+    uint32_t remote_dest = { 0 };
+
+    uint32_t len = { 0 };
+};
+
+// TCP SG-entry: Stream, Destination, Length
+struct tcpSg {
+    // Session
+    uint32_t stream = { strmTcp };
+    uint32_t dest = { 0 };
+    uint32_t len = { 0 };
+};
+
+// Union: sgEntry can be either a localSG, a syncSG, a rdmaSG or a tcpSG
+union sgEntry {
+    localSg local;
+    syncSg sync;
+    rdmaSg rdma;
+    tcpSg tcp;
+
+    sgEntry() {}
+    ~sgEntry() {}
+};
+
+// Flags for scatter-gather entries 
+struct sgFlags {
+    bool last = { true };
+    bool clr = { false };
+    bool poll = { false };
+};
+
+/* Board config */
+// Configuration of the FPGA including all networking settings etc. 
+struct fCnfg {
+>>>>>>> 9e4c9e1c (update host applications)
     bool en_avx = { false };
 
     /// Writeback enabled

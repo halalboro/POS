@@ -14,7 +14,7 @@
 #include <random>
 
 #include "bThread.hpp"
-
+#define EN_AVX
 using namespace std::chrono;
 
 namespace fpga {
@@ -622,6 +622,7 @@ void bThread::ioSwDbg() {
 	// std::cout << _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)], 0x0) << std::endl;
 }
 
+
 // ======-------------------------------------------------------------------------------
 // Bulk transfers
 // ======-------------------------------------------------------------------------------
@@ -645,6 +646,9 @@ void bThread::postCmd(uint64_t offs_3, uint64_t offs_2, uint64_t offs_1, uint64_
 #ifdef EN_AVX
         cmd_cnt = fcnfg.en_avx ? LOW_32(_mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::CTRL_REG)], 0x0)) :
                                     cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::CTRL_REG)];
+        # ifdef VERBOSE
+            std::cout << "bThread: postCmd AVX: " << cmd_cnt << std::endl; 
+        # endif
 #else
         cmd_cnt = cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::CTRL_REG)];
         # ifdef VERBOSE
@@ -663,6 +667,9 @@ void bThread::postCmd(uint64_t offs_3, uint64_t offs_2, uint64_t offs_1, uint64_
         // Fire AVX
         cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::CTRL_REG)] = 
             _mm256_set_epi64x(offs_3, offs_2, offs_1, offs_0);
+        # ifdef VERBOSE
+            std::cout << "bThread: postCmd AVX." << std::endl; 
+        # endif
     } else {
 #endif
         // Fire legacy
@@ -851,13 +858,20 @@ void bThread::invoke(CoyoteOper coper, sgEntry *sg_list, sgFlags sg_flags, uint3
                 // Third (remote) option (not quite clear what this means if it's not TCP or RDMA)
 
                 # ifdef VERBOSE
-                    std::cout << "bThread: Third remote option for a command." << std::endl; 
+                    std::cout << "bThread: Third local or remote option for a command." << std::endl; 
+                    std::cout << "sg_list[i].local.src_addr: " << sg_list[i].local.src_addr << std::endl;
+                    std::cout << "sg_list[i].local.dst_addr: " << sg_list[i].local.dst_addr << std::endl;
+                    std::cout << "sg_list[i].local.offset_r: " << sg_list[i].local.offset_r << std::endl;
+                    std::cout << "sg_list[i].local.offset_w: " << sg_list[i].local.offset_w << std::endl;
+                    std::cout << "ctid: " << ctid << std::endl;
+                    std::cout << "operator: " << static_cast<int>(coper) << std::endl; 
                 # endif
 
                 // Local
                 ctrl_cmd_src[i] =
                     // RD
                     ((ctid & CTRL_PID_MASK) << CTRL_PID_OFFS) |
+                    // ((sg_list[i].local.offset & CTRL_OFFS_MASK) << CTRL_OFFS_OFFS) |
                     ((sg_list[i].local.src_dest & CTRL_DEST_MASK) << CTRL_DEST_OFFS) |
                     ((i == (n_sg-1) ? ((sg_flags.last) ? CTRL_LAST : 0x0) : 0x0)) |
                     ((sg_list[i].local.src_stream & CTRL_STRM_MASK) << CTRL_STRM_OFFS) | 
@@ -866,10 +880,20 @@ void bThread::invoke(CoyoteOper coper, sgEntry *sg_list, sgFlags sg_flags, uint3
                     (static_cast<uint64_t>(sg_list[i].local.src_len) << CTRL_LEN_OFFS);
 
                 addr_cmd_src[i] = reinterpret_cast<uint64_t>(sg_list[i].local.src_addr);
+                # ifdef VERBOSE
+                    std::cout << " - bThread: addr_cmd_src " << addr_cmd_src[i] << std::endl; 
+                # endif 
+                addr_cmd_src[i] = (static_cast<uint64_t>(sg_list[i].local.offset_r & CTRL_OFFS_MASK) << CTRL_OFFS_OFFS) | addr_cmd_src[i];
+                # ifdef VERBOSE
+                    std::cout << " - bThread: ctrl_cmd_src " << ctrl_cmd_src << std::endl; 
+                    std::cout << " - bThread: addr_cmd_src " << addr_cmd_src[i] << std::endl; 
+                    // std::cout << " - bThread: offset & CTRL_OFFS_MASK " << (static_cast<uint64_t>(sg_list[i].local.offset & CTRL_OFFS_MASK) << 32) << std::endl; 
+                # endif 
 
                 ctrl_cmd_dst[i] =
                     // WR
                     ((ctid & CTRL_PID_MASK) << CTRL_PID_OFFS) |
+                    // ((sg_list[i].local.offset & CTRL_OFFS_MASK) << CTRL_OFFS_OFFS) |
                     ((sg_list[i].local.dst_dest & CTRL_DEST_MASK) << CTRL_DEST_OFFS) |
                     ((i == (n_sg-1) ? ((sg_flags.last) ? CTRL_LAST : 0x0) : 0x0)) |
                     ((sg_list[i].local.dst_stream & CTRL_STRM_MASK) << CTRL_STRM_OFFS) | 
@@ -878,6 +902,7 @@ void bThread::invoke(CoyoteOper coper, sgEntry *sg_list, sgFlags sg_flags, uint3
                     (static_cast<uint64_t>(sg_list[i].local.dst_len) << CTRL_LEN_OFFS);
 
                 addr_cmd_dst[i] = reinterpret_cast<uint64_t>(sg_list[i].local.dst_addr);
+                addr_cmd_dst[i] = (static_cast<uint64_t>(sg_list[i].local.offset_w & CTRL_OFFS_MASK) << CTRL_OFFS_OFFS) | addr_cmd_dst[i];
             }
 
             // Use the post command hook to post the previously generated command (probably to the driver)
@@ -906,9 +931,9 @@ void bThread::invoke(CoyoteOper coper, sgEntry *sg_list, sgFlags sg_flags, uint3
 uint32_t bThread::checkCompleted(CoyoteOper coper) {
     // Based on the type of operation, check completion via a read access to the configuration registers 
 
-    # ifdef VERBOSE
-        std::cout << "bThread: Check for completion of a coper " << std::endl; 
-    # endif
+    // # ifdef VERBOSE
+    //     std::cout << "bThread: Check for completion of a coper " << std::endl; 
+    // # endif
 
 	if(isCompletedLocalRead(coper)) {
 		if(fcnfg.en_wb) {
