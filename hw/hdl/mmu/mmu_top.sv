@@ -128,7 +128,7 @@ module mmu_top #(
 	output logic [N_REGIONS-1:0]    	usr_irq,
 
     // IO Control switches
-    output logic [N_REGIONS-1:0][7:0]   io_ctrl_switch
+    output logic [N_REGIONS-1:0][13:0]  io_ctrl_switch
 );
 
 //
@@ -163,6 +163,8 @@ metaIntf #(.STYPE(pf_t)) rd_pfault_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(pf_t)) wr_pfault_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] (.*);
+
+logic [N_REGIONS-1:0][130:0]  ep_ctrl;
 
 // Instantiate region MMUs
 for(genvar i = 0; i < N_REGIONS; i++) begin
@@ -206,7 +208,8 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
         .s_rd_invldt_ctrl(rd_invldt_ctrl[i]),
         .m_rd_invldt_irq(rd_invldt_irq[i]),
         .s_wr_invldt_ctrl(wr_invldt_ctrl[i]),
-        .m_wr_invldt_irq(wr_invldt_irq[i])
+        .m_wr_invldt_irq(wr_invldt_irq[i]),
+        .ep_ctrl(ep_ctrl[i])
     );
 
 end
@@ -315,6 +318,7 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
             .s_notify(s_notify[i]), //
             
             .usr_irq(usr_irq[i]), //
+            .ep_ctrl(ep_ctrl[i]),
             .io_ctrl(io_ctrl_switch[i])
         );
 
