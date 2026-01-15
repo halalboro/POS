@@ -174,3 +174,31 @@ eval $cmd
 create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axisr_data_fifo_512
 set cmd "set_property -dict \[list CONFIG.TDATA_NUM_BYTES {64} CONFIG.FIFO_DEPTH {$nn512} CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}  CONFIG.TID_WIDTH {6}] \[get_ips axisr_data_fifo_512]"
 eval $cmd
+
+# ILA
+create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_interconnect
+set_property -dict [list CONFIG.C_NUM_OF_PROBES {18} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_interconnect} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8}] [get_ips ila_interconnect]
+
+create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_interconnect_config
+set_property -dict [list CONFIG.C_NUM_OF_PROBES {2} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_interconnect_config} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE0_WIDTH {8} CONFIG.C_PROBE1_WIDTH {8}] [get_ips ila_interconnect_config]
+
+
+# # Interconnect
+# create_ip -name axi_interconnect -vendor xilinx.com -library ip -version 2.1 -module_name axi_stream_interconnect_0
+# # Configure AXI Interconnect
+# set_property -dict [list \
+#     CONFIG.NUM_SI {1} \
+#     CONFIG.NUM_MI {1} \
+#     CONFIG.S00_HAS_REGSLICE {4} \
+#     CONFIG.M00_HAS_REGSLICE {4} \
+#     CONFIG.ENABLE_ADVANCED_OPTIONS {1} \
+#     CONFIG.SYNCHRONIZATION_STAGES {3} \
+#     CONFIG.S00_HAS_DATA_FIFO {2} \
+#     CONFIG.M00_HAS_DATA_FIFO {2} \
+#     CONFIG.ENABLE_CLOCK_DOMAINS {1} \
+#     CONFIG.NUM_CLKS {2} \
+# ] [get_ips axi_stream_interconnect_0]
+# generate_target all [get_ips axi_stream_interconnect_0]
+
+create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_0
+set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.DECODER_REG {1}] [get_ips axis_switch_0]

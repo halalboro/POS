@@ -187,7 +187,7 @@ set(EN_UCLK 0 CACHE STRING "User clock crossing (300 MHz by default)")
 # Target user logic clock crossing, if EN_UCLK=1
 set(UCLK_F 250 CACHE STRING "User clock frequency")
 
-# HBM clock frequency 
+# HBM clock frequency
 set(HCLK_F 450 CACHE STRING "HBM clock frequency")
 
 
@@ -328,7 +328,15 @@ macro(validation_checks_hw)
         endif()
 
         # Set device details (memory size is in hex)
-        if(FDEV_NAME STREQUAL "u55c") 
+        if(FDEV_NAME STREQUAL "vcu118")
+            set(FPGA_PART xcvu9p-flga2104-2L-e CACHE STRING "FPGA device.")
+            set(DDR_SIZE 32)
+            set(HBM_SIZE 0)
+        elseif(FDEV_NAME STREQUAL "u50")
+            set(FPGA_PART xcu50-fsvh2104-2-e CACHE STRING "FPGA device.")
+            set(DDR_SIZE 0)
+            set(HBM_SIZE 33)
+        elseif(FDEV_NAME STREQUAL "u55c")
             set(FPGA_PART xcu55c-fsvh2892-2L-e CACHE STRING "FPGA device.")
             set(DDR_SIZE 0)
             set(HBM_SIZE 34)
@@ -338,6 +346,7 @@ macro(validation_checks_hw)
             set(HBM_SIZE 0)
             set(N_DDR_CHAN 1)
         elseif(FDEV_NAME STREQUAL "u280")
+            message("** FPGA_PART is u280.")
             set(FPGA_PART xcu280-fsvh2892-2L-e CACHE STRING "FPGA device.")
             set(DDR_SIZE 34)
             set(HBM_SIZE 33)

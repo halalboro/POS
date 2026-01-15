@@ -98,7 +98,10 @@ module cnfg_slave_avx #(
     metaIntf.s                  s_notify,
 
     // Control
-    output logic                usr_irq
+    output logic                usr_irq,
+
+    // IO Control
+    output logic [7:0]          io_ctrl
 );
 
 // -- Decl -------------------------------------------------------------------------------
@@ -362,6 +365,10 @@ localparam integer TCP_OPEN_PORT_REG                        = 12;
 localparam integer TCP_OPEN_PORT_STAT_REG                   = 13;
 localparam integer TCP_OPEN_CONN_REG                        = 14;
 localparam integer TCP_OPEN_CONN_STAT_REG                   = 15;
+
+
+// 53 (RW): IO Switch
+localparam integer IO_SWITCH_REG                            = 53;
 
 // 64 (RO) : Status DMA completion
 localparam integer STAT_DMA_REG                             = 2**PID_BITS;
@@ -679,6 +686,13 @@ always_ff @(posedge aclk) begin
                     end
 `endif 
 
+                IO_SWITCH_REG: // IO switch configure
+                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
+                        if(s_axim_ctrl.wstrb[i]) begin
+                            slv_reg[IO_SWITCH_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
+                        end
+                    end
+
                 default: ;
             endcase
         end
@@ -766,6 +780,8 @@ always_ff @(posedge aclk) begin
             axi_rdata[1:0] <= open_port_sts_response[1:0];
 `endif 
 
+        [IO_SWITCH_REG:IO_SWITCH_REG]:
+            axi_rdata <= slv_reg[IO_SWITCH_REG];
 
         [STAT_DMA_REG:STAT_DMA_REG+(2**PID_BITS)-1]: begin
             axi_mux <= 1'b1; 
@@ -1034,6 +1050,9 @@ assign pfault_wr_ctrl.valid = slv_reg[ISR_REG][ISR_RESTART_WR];
 assign pfault_wr_ctrl.data = slv_reg[ISR_REG][ISR_SUCCESS];
 
 assign usr_irq = irq_pending;
+
+// IO control
+assign io_ctrl = slv_reg[IO_SWITCH_REG][7:0];
 
 // Host request
 metaIntf #(.STYPE(dreq_t)) host_req (.*);
