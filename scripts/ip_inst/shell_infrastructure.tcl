@@ -22,6 +22,103 @@ set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.FIFO_DEPTH {128} CON
 create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_data_fifo_hbm_b
 set_property -dict [list CONFIG.TDATA_NUM_BYTES {0} CONFIG.TUSER_WIDTH {4} CONFIG.FIFO_DEPTH {128} ] [get_ips axis_data_fifo_hbm_b]
 
+<<<<<<< HEAD
+=======
+# Split
+create_ip -name axi_data_fifo -vendor xilinx.com -library ip -version 2.1 -module_name axi_data_fifo_shell_sink_int
+set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {512} CONFIG.ID_WIDTH {6} CONFIG.WRITE_FIFO_DEPTH {512} CONFIG.READ_FIFO_DEPTH {512} CONFIG.WRITE_FIFO_DELAY {1} CONFIG.READ_FIFO_DELAY {1}] [get_ips axi_data_fifo_shell_sink_int]
+
+#
+# Dwidth
+#
+
+create_ip -name axi_dwidth_converter -vendor xilinx.com -library ip -version 2.1 -module_name axi_dwidth_shell_src_s1_int
+set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.SI_DATA_WIDTH {512} CONFIG.SI_ID_WIDTH {6} CONFIG.MI_DATA_WIDTH {64}] [get_ips axi_dwidth_shell_src_s1_int]
+
+create_ip -name axi_dwidth_converter -vendor xilinx.com -library ip -version 2.1 -module_name axim_dwidth_shell_src_s1_int
+set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.SI_DATA_WIDTH {512} CONFIG.MI_DATA_WIDTH {256} CONFIG.SI_ID_WIDTH {6}] [get_ips axim_dwidth_shell_src_s1_int]
+
+#
+# Protocols
+#
+
+create_ip -name axi_protocol_converter -vendor xilinx.com -library ip -version 2.1 -module_name axi_protocol_shell_src_s3_int
+set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {64}] [get_ips axi_protocol_shell_src_s3_int]
+
+#
+# XBARs
+#
+
+# create_ip -name axi_crossbar -vendor xilinx.com -library ip -version 2.1 -module_name shell_xbar
+# set cmd [format "set_property -dict \[list \
+#     CONFIG.ID_WIDTH {4} \
+#     CONFIG.ADDR_WIDTH {64} \
+#     CONFIG.DATA_WIDTH {512} \
+#     CONFIG.S00_WRITE_ACCEPTANCE {8} \
+#     CONFIG.S00_READ_ACCEPTANCE {8} \
+#     CONFIG.S00_THREAD_ID_WIDTH {4} \
+#     CONFIG.S01_THREAD_ID_WIDTH {4} \
+#     CONFIG.S02_THREAD_ID_WIDTH {4} \
+#     CONFIG.S03_THREAD_ID_WIDTH {4} \
+#     CONFIG.S04_THREAD_ID_WIDTH {4} \
+#     CONFIG.S05_THREAD_ID_WIDTH {4} \
+#     CONFIG.S06_THREAD_ID_WIDTH {4} \
+#     CONFIG.S07_THREAD_ID_WIDTH {4} \
+#     CONFIG.S08_THREAD_ID_WIDTH {4} \
+#     CONFIG.S09_THREAD_ID_WIDTH {4} \
+#     CONFIG.S10_THREAD_ID_WIDTH {4} \
+#     CONFIG.S11_THREAD_ID_WIDTH {4} \
+#     CONFIG.S12_THREAD_ID_WIDTH {4} \
+#     CONFIG.S13_THREAD_ID_WIDTH {4} \
+#     CONFIG.S14_THREAD_ID_WIDTH {4} \
+#     CONFIG.S15_THREAD_ID_WIDTH {4} \
+#     CONFIG.S01_BASE_ID {0x00000010} \
+#     CONFIG.S02_BASE_ID {0x00000020} \
+#     CONFIG.S03_BASE_ID {0x00000030} \
+#     CONFIG.S04_BASE_ID {0x00000040} \
+#     CONFIG.S05_BASE_ID {0x00000050} \
+#     CONFIG.S06_BASE_ID {0x00000060} \
+#     CONFIG.S07_BASE_ID {0x00000070} \
+#     CONFIG.S08_BASE_ID {0x00000080} \
+#     CONFIG.S09_BASE_ID {0x00000090} \
+#     CONFIG.S10_BASE_ID {0x000000a0} \
+#     CONFIG.S11_BASE_ID {0x000000b0} \
+#     CONFIG.S12_BASE_ID {0x000000c0} \
+#     CONFIG.S13_BASE_ID {0x000000d0} \
+#     CONFIG.S14_BASE_ID {0x000000e0} \
+#     CONFIG.S15_BASE_ID {0x000000f0} \
+#     CONFIG.M00_WRITE_ISSUING {8} \
+#     CONFIG.M00_READ_ISSUING {8} \
+#     CONFIG.M00_A00_BASE_ADDR {0x0000000000000000} \
+#     CONFIG.M00_A00_ADDR_WIDTH {15} "] 
+# if {$cfg(en_avx) eq 1} {
+#     append cmd "CONFIG.NUM_MI {[expr {2* $cfg(n_reg) + 1}]} "
+
+#     for {set i 0}  {$i < $cfg(n_reg)} {incr i} {
+#         append cmd [format "CONFIG.M%02d_WRITE_ISSUING {8} " [expr {2*$i+1}]]
+#         append cmd [format "CONFIG.M%02d_WRITE_ISSUING {8} " [expr {2*$i+2}]]
+#         append cmd [format "CONFIG.M%02d_READ_ISSUING {8} " [expr {2*$i+1}]]
+#         append cmd [format "CONFIG.M%02d_READ_ISSUING {8} " [expr {2*$i+2}]]
+#         append cmd [format "CONFIG.M%02d_A00_ADDR_WIDTH {18} " [expr {2*$i+1}]]
+#         append cmd [format "CONFIG.M%02d_A00_ADDR_WIDTH {18} " [expr {2*$i+2}]]
+#         append cmd [format "CONFIG.M%02d_A00_BASE_ADDR {0x0000000000%02x0000} " [expr {2*$i+1}] [expr {0x10 + $i*4}]]
+#         append cmd [format "CONFIG.M%02d_A00_BASE_ADDR {0x000000000%03x0000} "  [expr {2*$i+2}] [expr {0x100 + $i*4}]]
+#     }
+# } else {
+#     append cmd "CONFIG.NUM_MI {[expr {$cfg(n_reg) + 1}]} "
+
+#     for {set i 0}  {$i < $cfg(n_reg)} {incr i} {
+#         append cmd [format "CONFIG.M%02d_WRITE_ISSUING {8} " [expr {$i+1}]]
+#         append cmd [format "CONFIG.M%02d_READ_ISSUING {8} " [expr {$i+1}]]
+#         append cmd [format "CONFIG.M%02d_A00_ADDR_WIDTH {18} " [expr {$i+1}]]
+#         append cmd [format "CONFIG.M%02d_A00_BASE_ADDR {0x0000000000%02x0000} " [expr {0x10 + $i*4}]]
+#     }
+# }
+# append cmd "] \[get_ips shell_xbar]"
+# eval $cmd
+
+#
+>>>>>>> cd35647c (add ceu support for more vfpgas. add old counter logics)
 # Stripe
 create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_data_fifo_stripe_b
 set_property -dict [list CONFIG.TDATA_NUM_BYTES {0} CONFIG.TUSER_WIDTH {2}] [get_ips axis_data_fifo_stripe_b]

@@ -81,6 +81,28 @@ if(EXAMPLE STREQUAL "dtu_3")
     create_hw()
 endif()
 
+if(EXAMPLE STREQUAL "ceu_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+
 if(EXAMPLE STREQUAL "1dfft_3")
     set(BUILD_STATIC 1)
     set(BUILD_SHELL 0)
@@ -411,6 +433,78 @@ if(EXAMPLE STREQUAL "secure_storage_2")
     load_apps (
         VFPGA_C0_0 "apps/rle"
         VFPGA_C0_1 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "secure2_digital")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 4)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "schedule_6")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 6)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+        VFPGA_C0_4 "apps/1dfft"
+        VFPGA_C0_5 "apps/rle"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "schedule_8")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 8)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+        VFPGA_C0_4 "apps/1dfft"
+        VFPGA_C0_5 "apps/rle"
+        VFPGA_C0_6 "apps/sha2_module"
+        VFPGA_C0_7 "apps/1dfft"
     )
 
     create_hw()
