@@ -49,11 +49,14 @@ logic [1:0] ul_id;
 
 // getting routing capability from host
 always_ff @(posedge aclk) begin
-  ul_id <= host_route_cap_in[1:0];
-  route_capa_reg[ul_id] <= host_route_cap_in; 
+    if (~aresetn) begin
+        route_capa_reg <= '{default:0};
+        ul_id <= 0;
+    end else begin
+        ul_id <= host_route_cap_in[1:0];
+        route_capa_reg[ul_id] <= host_route_cap_in;
+        ul_port_out <= route_in[1:0];
+    end
 end
-
-assign ul_port_out = route_in[1:0];
-
 
 endmodule

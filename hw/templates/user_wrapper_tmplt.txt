@@ -300,25 +300,22 @@ module design_user_wrapper_{{ c_reg }} (
 {% endif %}
 {% if cnfg.en_strm %}
 
-    AXI4SR axis_host_send [N_STRM_AXI] ();
-    AXI4SR axis_host_recv [N_STRM_AXI] ();
+    AXI4SR axis_host_send ();
+    AXI4SR axis_host_recv ();
 
-    `AXISR_ASSIGN(axis_host_recv[0], axis_host_recv_int[0]);
-    `AXISR_ASSIGN(axis_host_send_int[0], axis_host_send[0]);
+    assign axis_host_recv.tvalid                = axis_host_sink_tvalid;
+    assign axis_host_recv.tdata                 = axis_host_sink_tdata;
+    assign axis_host_recv.tkeep                 = axis_host_sink_tkeep;
+    assign axis_host_recv.tlast                 = axis_host_sink_tlast;
+    assign axis_host_recv.tid                   = axis_host_sink_tid;
+    assign axis_host_sink_tready                = axis_host_recv.tready;
 
-    assign axis_host_recv[0].tvalid             = axis_host_sink_tvalid;
-    assign axis_host_recv[0].tdata              = axis_host_sink_tdata;
-    assign axis_host_recv[0].tkeep              = axis_host_sink_tkeep;
-    assign axis_host_recv[0].tlast              = axis_host_sink_tlast;
-    assign axis_host_recv[0].tid                = axis_host_sink_tid;
-    assign axis_host_sink_tready                = axis_host_recv[0].tready;
-
-    assign axis_host_src_tvalid                 = axis_host_send[0].tvalid;
-    assign axis_host_src_tdata                  = axis_host_send[0].tdata;
-    assign axis_host_src_tkeep                  = axis_host_send[0].tkeep;
-    assign axis_host_src_tlast                  = axis_host_send[0].tlast;
-    assign axis_host_src_tid                    = axis_host_send[0].tid;
-    assign axis_host_send[0].tready             = axis_host_src_tready;
+    assign axis_host_src_tvalid                 = axis_host_send.tvalid;
+    assign axis_host_src_tdata                  = axis_host_send.tdata;
+    assign axis_host_src_tkeep                  = axis_host_send.tkeep;
+    assign axis_host_src_tlast                  = axis_host_send.tlast;
+    assign axis_host_src_tid                    = axis_host_send.tid;
+    assign axis_host_send.tready                = axis_host_src_tready;
 {% endif %}
 
 {% if cnfg.en_mem %}
@@ -569,7 +566,7 @@ module design_user_wrapper_{{ c_reg }} (
     ) inst_mux_rd (
         .aclk(aclk),
         .aresetn(aresetn),
-        .port_in(port_dtu_out),
+        .port_in(port_in),
 
         .s_axis(axis_host_recv),
         .m_axis(axis_host_recv_int)
@@ -580,7 +577,7 @@ module design_user_wrapper_{{ c_reg }} (
     ) inst_mux_wr (
         .aclk(aclk),
         .aresetn(aresetn),
-        .port_out(port_dtu_in),
+        .port_out(port_out),
 
         .s_axis(axis_host_send_int),
         .m_axis(axis_host_send)

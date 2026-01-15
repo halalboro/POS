@@ -45,7 +45,7 @@ module axis_data_switch_dtu_3 #(
     input  logic                             aresetn,
 
     // IO control
-    (* mark_debug = "true" *) input logic [N_REGIONS-1:0][7:0]         route_in,
+    input logic [N_REGIONS-1:0][7:0]         route_in,
     output logic [N_REGIONS-1:0][7:0]        route_out,
 
 
@@ -61,9 +61,10 @@ module axis_data_switch_dtu_3 #(
 
 );
 
+
 // For axi stream switch decode error
-logic [3:0] axis_switch_0_s_decode_err;
-logic [N_ID-1:0][1:0] axis_switch_0_m_tdest;
+logic [5:0] axis_switch_0_s_decode_err;
+logic [N_ID-1:0][7:0] axis_switch_0_m_tdest;
 
 
 // ----------------------------------------------------------------------------------------------------------------------- 
@@ -71,15 +72,15 @@ logic [N_ID-1:0][1:0] axis_switch_0_m_tdest;
 // ----------------------------------------------------------------------------------------------------------------------- 
 // -- interface loop issues => temp signals
 
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_host_sink_tvalid;
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_host_sink_tready;
+logic [N_ID-1:0]                        data_host_sink_tvalid;
+logic [N_ID-1:0]                        data_host_sink_tready;
 logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_host_sink_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_host_sink_tkeep;
 logic [N_ID-1:0]                        data_host_sink_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_host_sink_tid;
 
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_host_src_tvalid;
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_host_src_tready;
+logic [N_ID-1:0]                        data_host_src_tvalid;
+logic [N_ID-1:0]                        data_host_src_tready;
 logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_host_src_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_host_src_tkeep;
 logic [N_ID-1:0]                        data_host_src_tlast;
@@ -105,23 +106,19 @@ for(genvar i = 0; i < N_ID; i++) begin
 end
 
 
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_dtu_sink_tvalid;
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_dtu_sink_tready;
-logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_dtu_sink_tdata;
+logic [N_ID-1:0]                        data_dtu_sink_tvalid;
+logic [N_ID-1:0]                        data_dtu_sink_tready;
+(* mark_debug = "true" *) logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_dtu_sink_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_dtu_sink_tkeep;
 logic [N_ID-1:0]                        data_dtu_sink_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_dtu_sink_tid;
 
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_dtu_src_tvalid;
-(* mark_debug = "true" *) logic [N_ID-1:0]                        data_dtu_src_tready;
+logic [N_ID-1:0]                        data_dtu_src_tvalid;
+logic [N_ID-1:0]                        data_dtu_src_tready;
 logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_dtu_src_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_dtu_src_tkeep;
 logic [N_ID-1:0]                        data_dtu_src_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_dtu_src_tid;
-
-for(genvar i = 0; i < N_ID; i++) begin
-    assign route_out[i] = route_in[i];
-end
 
 
 
@@ -148,33 +145,18 @@ axis_switch_6_0 inst_axis_switch_0 (
     .aclk(aclk),
     .aresetn(aresetn),
     .m_axis_tdata({data_dtu_src_tdata, data_host_src_tdata}),
-    .m_axis_tdest({axis_switch_0_m_tdest}),
+    .m_axis_tdest({route_out, axis_switch_0_m_tdest}),
     .m_axis_tready({data_dtu_src_tready, data_host_src_tready}),
     .m_axis_tvalid({data_dtu_src_tvalid, data_host_src_tvalid}),
     .m_axis_tid({data_dtu_src_tid, data_host_src_tid}),
     .s_axis_tdata({data_dtu_sink_tdata, data_host_sink_tdata}),
-    .s_axis_tdest({route_in[2][5:3], route_in[1][5:3], route_in[0][5:3], 3'b101, 3'b100, 3'b011}),
+//    .s_axis_tdest({route_in[1][3:2], route_in[0][3:2], 2'b11, 2'b10}),
+    .s_axis_tdest({route_in[2], route_in[1], route_in[0], 8'b10111100, 8'b10011100, 8'b01111100}),
     .s_axis_tready({data_dtu_sink_tready, data_host_sink_tready}),
     .s_axis_tvalid({data_dtu_sink_tvalid, data_host_sink_tvalid}),
     .s_axis_tid({data_dtu_sink_tid, data_host_sink_tid}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
-
-// axis_switch_6_0 inst_axis_switch_0 (
-//     .aclk(aclk),
-//     .aresetn(aresetn),
-//     .m_axis_tdata({data_dtu_src_tdata[2], data_dtu_src_tdata[1], data_dtu_src_tdata[0], data_host_src_tdata[2], data_host_src_tdata[1], data_host_src_tdata[0]}),
-//     .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-//     .m_axis_tready({data_dtu_src_tready[1], data_dtu_src_tready[0], data_host_src_tready[1], data_host_src_tready[0]}),
-//     .m_axis_tvalid({data_dtu_src_tvalid[1], data_dtu_src_tvalid[0], data_host_src_tvalid[1], data_host_src_tvalid[0]}),
-//     .m_axis_tid({data_dtu_src_tid[1], data_dtu_src_tid[0], data_host_src_tid[1], data_host_src_tid[0]}),
-//     .s_axis_tdata({data_dtu_sink_tdata[1], data_dtu_sink_tdata[0], data_host_sink_tdata[1], data_host_sink_tdata[0]}),
-//     .s_axis_tdest({route_in[2][5:3], route_in[1][5:3], route_in[0][5:3], 3'b101, 3'b100, 3'b011}),
-//     .s_axis_tready({data_dtu_sink_tready[1], data_dtu_sink_tready[0], data_host_sink_tready[1], data_host_sink_tready[0]}),
-//     .s_axis_tvalid({data_dtu_sink_tvalid[1], data_dtu_sink_tvalid[0], data_host_sink_tvalid[1], data_host_sink_tvalid[0]}),
-//     .s_axis_tid({data_dtu_sink_tid[1], data_dtu_sink_tid[0], data_host_sink_tid[1], data_host_sink_tid[0]}),
-//     .s_decode_err(axis_switch_0_s_decode_err)
-// );
 
 ila_switch_6 inst_ila_switch (
     .clk(aclk),
@@ -203,12 +185,6 @@ ila_switch_6 inst_ila_switch (
 //     .probe0(route_in[0]),
 //     .probe1(route_in[1])
 // );
-
-// create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_switch_6
-// set_property -dict [list CONFIG.C_NUM_OF_PROBES {18} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_6} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE12_WIDTH {8} CONFIG.C_PROBE13_WIDTH {8} CONFIG.C_PROBE14_WIDTH {8} CONFIG.C_PROBE15_WIDTH {8} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8} ] [get_ips ila_switch_6]
-
-// create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_6_0
-// set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {3} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
-
+// set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
 
 endmodule
