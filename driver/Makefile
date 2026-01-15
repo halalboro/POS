@@ -19,6 +19,7 @@
 # Licence can be found <https://www.gnu.org/licenses/>.
 ###############################################################################
 
+<<<<<<< HEAD
 # Target output name
 obj-m := coyote_driver.o
 
@@ -44,6 +45,11 @@ coyote_driver-objs += src/vfpga/vfpga_uisr.o
 # Location of the Linux kernel header files, we will be building within the context of the kernel's Makefile (the flag -C sets the context)
 # This gives us access to all the Linux kernel functionality, typically implemented in <linux/*.h> and <asm/*.h>
 KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+=======
+KERNELDIR ?= /nix/store/gw650sbpsc0pv3qkj0g2jl1xj4xpq149-linux-6.9-dev/lib/modules/$(shell uname -r)/build
+#KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+>>>>>>> 3513c246 (ushell prototype)
 
 BUILD_DIR := $(shell pwd)/build
 EXTRA_CFLAGS := -std=gnu11 -Wno-declaration-after-statement -I$(PWD)/include -I$(PWD)/include/reconfig -I$(PWD)/include/vfpga -I$(PWD)/include/platform 

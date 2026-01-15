@@ -33,14 +33,12 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 /**
- * @brief   Data switch source
- *
- * Data switch for all vFPGA streams. 
+ * @brief   Capability enforcement unit source
  *
  *  @param N_ID    Number of vFPGA regions
  */
-// (* dont_touch = "true" *) module dtu_top #(
-module dtu_top #(
+// (* dont_touch = "true" *) module ceu_top #(
+module ceu_top #(
     // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
     parameter integer N_ID = N_REGIONS
 ) (
@@ -100,9 +98,12 @@ module dtu_top #(
     (* mark_debug = "true" *) output logic                                axisr_ul_src_tvalid,
     output logic[PID_BITS-1:0]                  axisr_ul_src_tid, 
 
-    input logic [7:0]                           host_route_cap,
-    input logic [7:0]                           route_in,
-    output logic [7:0]                          route_out,
+    // input logic [7:0]                           host_route_cap,
+    // input logic [7:0]                           route_in,
+    // output logic [7:0]                          route_out,
+    input logic [13:0]                           host_route_cap,
+    input logic [13:0]                           route_in,
+    output logic [13:0]                          route_out,
 
     input logic [1:0]                           port_in,
     output logic [1:0]                          port_out
@@ -322,7 +323,7 @@ module dtu_top #(
         .route_out(route_out)
     );
 
-    gate_recv #(
+    gate_recv_ceu #(
         .N_DESTS(N_STRM_AXI)
     ) inst_gate_recv (
         .aclk(aclk),
