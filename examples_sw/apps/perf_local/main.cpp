@@ -62,14 +62,14 @@ void gotInt(int) {
 /* Def params */
 constexpr auto const defDevice = 0;
 
-constexpr auto const nRegions = 1;
+constexpr auto const nRegions = 2;
 constexpr auto const defHuge = true;
 constexpr auto const defMappped = true;
 constexpr auto const defStream = 1;
 constexpr auto const nRepsThr = 1;
 constexpr auto const nRepsLat = 1;
 constexpr auto const defMinSize = 1 * 1024;
-constexpr auto const defMaxSize = 1 * 1024;
+constexpr auto const defMaxSize = 1 * 1024 * 1024;
 constexpr auto const nBenchRuns = 1;
 
 /**
@@ -160,9 +160,9 @@ int main(int argc, char *argv[])
                          : (huge ? (mmap(NULL, max_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0))
                                  : (malloc(max_size)));
     }
-    cthread.emplace_back(new cThread<std::any>(1, getpid(), cs_dev));
-    cthread.emplace_back(new cThread<std::any>(2, getpid(), cs_dev));
-    cthread.emplace_back(new cThread<std::any>(3, getpid(), cs_dev));
+    // cthread.emplace_back(new cThread<std::any>(1, getpid(), cs_dev));
+    // cthread.emplace_back(new cThread<std::any>(2, getpid(), cs_dev));
+    // cthread.emplace_back(new cThread<std::any>(3, getpid(), cs_dev));
 
     sgEntry sg[n_regions];
 
@@ -173,17 +173,57 @@ int main(int argc, char *argv[])
         sg[i].local.dst_addr = hMem[i]; sg[i].local.dst_len = curr_size; sg[i].local.dst_stream = stream;
     }
 
-    cthread[0]->ioSwitch(IODevs::Inter_TO_1 | IODevs::WRAPPER_PIPE_LEAD);
-    cthread[0]->ioSwDbg();
-    cthread[1]->ioSwitch(IODevs::Inter_TO_2 | IODevs::WRAPPER_PIPE_MID);
-    cthread[1]->ioSwDbg();
-    cthread[2]->ioSwitch(IODevs::Inter_TO_3 | IODevs::WRAPPER_PIPE_MID);
-    cthread[2]->ioSwDbg();
-    cthread[3]->ioSwitch(IODevs::Inter_TO_0 | IODevs::WRAPPER_PIPE_MID);
-    cthread[3]->ioSwDbg();
+    // direct connection for each vFPGA
+    // sg[0].local.offset_r = 0;
+    // sg[0].local.offset_w = 0;
+    // sg[1].local.offset_r = 0;
+    // sg[1].local.offset_w = 0;
+    // cthread[0]->ioSwitch(IODevs::Inter_TO_HOST_0);
+    // cthread[0]->ioSwDbg();
+    // cthread[1]->ioSwitch(IODevs::Inter_TO_HOST_1);
+    // cthread[1]->ioSwDbg();
 
-    for (int i = 0; i < max_size / 8; i++) {
-        ((uint32_t *)hMem[0])[i] = 0;
+    // from vFPGA 0 to vFPGA 1
+    // sg[0].local.offset_r = 0;
+    // sg[0].local.offset_w = 6;
+    // sg[1].local.offset_r = 6;
+    // sg[1].local.offset_w = 0;
+    // cthread[0]->ioSwitch(IODevs::Inter_TO_DTU_1);
+    // cthread[0]->ioSwDbg();
+    // cthread[1]->ioSwitch(IODevs::Inter_TO_HOST_1);
+    // cthread[1]->ioSwDbg();
+
+    // sg[0].local.offset_r = 0;
+    // sg[0].local.offset_w = 0;
+    // sg[1].local.offset_r = 0;
+    // sg[1].local.offset_w = 0;
+    // cthread[0]->ioSwitch(IODevs::Inter_HOST_TO_DTU_0 | IODevs::Inter_DTU_TO_HOST_0);
+    // cthread[0]->ioSwDbg();
+    // cthread[1]->ioSwitch(IODevs::Inter_HOST_TO_DTU_1 | IODevs::Inter_DTU_TO_HOST_1);
+    // cthread[1]->ioSwDbg();
+
+    // sg[0].local.offset_r = 0;
+    // sg[0].local.offset_w = 6;
+    // sg[1].local.offset_r = 6;
+    // sg[1].local.offset_w = 0;
+    // cthread[0]->ioSwitch(IODevs::Inter_HOST_TO_DTU_0 | IODevs::Inter_DTU_TO_DTU_1);
+    // cthread[0]->ioSwDbg();
+    // cthread[1]->ioSwitch(IODevs::Inter_DTU_TO_HOST_1);
+    // cthread[1]->ioSwDbg();
+
+    // cthread[0]->ioSwitch(IODevs::Inter_DTU_TO_0_USER | IODevs::Inter_USER_TO_0_DTU);
+    // cthread[0]->ioSwDbg();
+    // cthread[1]->ioSwitch(IODevs::Inter_DTU_TO_1_USER | IODevs::Inter_USER_TO_1_DTU);
+    // cthread[1]->ioSwDbg();
+    // cthread[2]->ioSwitch(IODevs::Inter_TO_3 | IODevs::WRAPPER_PIPE_MID);
+    // cthread[2]->ioSwDbg();
+    // cthread[3]->ioSwitch(IODevs::Inter_TO_0 | IODevs::WRAPPER_PIPE_MID);
+    // cthread[3]->ioSwDbg();
+
+    for (int j = 0; j < n_regions; j++) {
+        for (int i = 0; i < max_size / 8; i++) {
+            ((uint32_t *)hMem[j])[i] = 0;
+        }
     }
 
     // for (int i = 0; i < 32 / 8; i++) {        
@@ -265,13 +305,44 @@ int main(int argc, char *argv[])
         auto benchmark_lat = [&]() {
             // Transfer the data
             for(int i = 0; i < n_reps_lat; i++) {
+                // for(int j = 0; j < 2; j++) {
+                //     // for direct connection
+                //     // cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
+                //     // cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
+                //     // while(cthread[1]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                //     //     if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");         
+                    
+                //     // for ul0 to ul1
+                //     cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
+                //     while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                //         if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
+                // }
+
+                // for(int j = 0; j < 1; j++) {
+                //     cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
+                //     while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                //         if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
+                // }
+                
+                // for ul0 -> host -> ul1
                 for(int j = 0; j < 1; j++) {
-                    cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
-                    // sleep(1);
-                    // cthread[j]->invoke(CoyoteOper::LOCAL_WRITE, &sg[j], {true, true, false});
-                    while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
-                        if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
+                    cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
+                    // while(cthread[0]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                    //     if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
+                    
+                    // check if data has been received, try to run in pipeline fashion
+                    while (true) {
+                        if (((uint32_t *)hMem[0])[0] == 1)
+                            break;
+                    }
+
+                    // std::cout << "Number: " << ((uint32_t *)hMem[0])[0] << std::endl;
+                    
+                    cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
+                    while(cthread[1]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                        if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");   
                 }
+
                 // for(int j = 1; j < n_regions; j++) {
                 //     cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
                 //     while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
@@ -280,19 +351,28 @@ int main(int argc, char *argv[])
             }
         };
         bench.runtime(benchmark_lat);
+        std::cout << "size: " << curr_size;
         std::cout << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps_lat) << " ns" << std::endl;
 #endif
-        std::cout << "size: " << curr_size << std::endl;
+        // std::cout << "size: " << curr_size << std::endl;
 
         curr_size *= 2;
+
+        for (int j = 0; j < n_regions; j++) {
+            for (int i = 0; i < max_size / 8; i++) {
+                ((uint32_t *)hMem[j])[i] = 0;
+            }
+        }
     }
 
     std::cout << std::endl;
 
-    for (int i = 0; i < 32 / 8; i++) {
-        std::cout << "Number " << i << ": " << ((uint32_t *)hMem[0])[i] << std::endl;
+    for (int j = 0; j < n_regions; j++) {
+        std::cout << "Data for vFPGA " << j << std::endl;
+        for (int i = 0; i < 32 / 8; i++) {
+            std::cout << "Number " << i << ": " << ((uint32_t *)hMem[j])[i] << std::endl;
+        }
     }
-
     // ---------------------------------------------------------------
     // Release 
     // ---------------------------------------------------------------

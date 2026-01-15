@@ -170,6 +170,12 @@ public:
 	void ioSwitch(IODevs io_dev);
 	
 	void ioSwDbg();
+
+	/**
+	 * @brief Get user data
+	 */
+	void userData();
+
 	/**
 	 * @brief Invoke a transfer of data 
 	 * coper - Coyote Operation (i.e. a LOCAL_WRITE or a REMOTE_RDMA_WRITE)

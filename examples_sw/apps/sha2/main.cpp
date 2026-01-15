@@ -31,9 +31,26 @@ void gotInt(int) {
 constexpr auto const defDevice = 0;
 constexpr auto const targetVfid = 0;  
 constexpr auto const defReps = 1;
-constexpr auto const defSize = 64 * 1024;  // 64KB default
+constexpr auto const defMinSize = 8 * 1024;  // 64KB default
+constexpr auto const defMaxSize = 128 * 1024;  // 64KB default
 constexpr auto const defDW = 4;            // 32-bit for SHA
 constexpr auto const SHA256_DIGEST_LENGTH = 32;  // SHA256 produces 256-bit (32-byte) hash
+
+/**
+ * @brief Benchmark API
+ * 
+ */
+enum class BenchRegs : uint32_t {
+    CTRL_REG = 0,
+    DONE_REG = 1,
+    TIMER_REG = 2,
+    VADDR_REG = 3,
+    LEN_REG = 4,
+    PID_REG = 5,
+    N_REPS_REG = 6,
+    N_BEATS_REG = 7,
+    DEST_REG = 8
+};
 
 int main(int argc, char *argv[])  
 {
@@ -54,19 +71,21 @@ int main(int argc, char *argv[])
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, programDescription), commandLineArgs);
     boost::program_options::notify(commandLineArgs);
 
-    uint32_t size = defSize;
+    uint32_t curr_size = defMinSize;
+    uint32_t max_size = defMaxSize;
     uint32_t n_reps = defReps;
 
-    if(commandLineArgs.count("size") > 0) size = commandLineArgs["size"].as<uint32_t>();
+    if(commandLineArgs.count("size") > 0) max_size = commandLineArgs["size"].as<uint32_t>();
     if(commandLineArgs.count("reps") > 0) n_reps = commandLineArgs["reps"].as<uint32_t>();
 
-    uint32_t n_pages_host = (size + hugePageSize - 1) / hugePageSize;
+    uint32_t n_pages_host = (max_size + hugePageSize - 1) / hugePageSize;
     uint32_t n_pages_rslt = (n_reps * SHA256_DIGEST_LENGTH + pageSize - 1) / pageSize;
 
     PR_HEADER("PARAMS");
     std::cout << "vFPGA ID: " << targetVfid << std::endl;
     std::cout << "Number of allocated pages per run: " << n_pages_host << std::endl;
-    std::cout << "Data size: " << size << std::endl;
+    std::cout << "Min data size: " << curr_size << std::endl;
+    std::cout << "Max data size: " << max_size << std::endl;
     std::cout << "Number of reps: " << n_reps << std::endl;
 
     try {
@@ -86,7 +105,7 @@ int main(int argc, char *argv[])
             }
 
             // Fill with test pattern
-            for(int j = 0; j < size/defDW; j++) {
+            for(int j = 0; j < max_size/defDW; j++) {
                 inputData[i][j] = j;  // Simple pattern for testing
             }
         }
@@ -107,50 +126,48 @@ int main(int argc, char *argv[])
 
         // Clear any previous completions
         cthread->clearCompleted();
-        cthread->ioSwitch(IODevs::Inter_3_TO_HOST_0);
+        cthread->ioSwitch(IODevs::Inter_2_TO_HOST_0);
         cthread->ioSwDbg();
 
-        auto benchmark_thr = [&]() {
-            // Queue all transfers
-            for(int i = 0; i < n_reps; i++) {
-                memset(&sg, 0, sizeof(localSg));
-                sg.local.src_addr = inputData[i];
-                sg.local.src_len = size;
-                sg.local.src_stream = strmHost;
-                // sg.local.src_dest = targetVfid;
+        // std::vector<double> time_bench;
+        uint32_t timer_value;
 
-                sg.local.dst_addr = &hashResults[i * SHA256_DIGEST_LENGTH];
-                sg.local.dst_len = SHA256_DIGEST_LENGTH;
-                sg.local.dst_stream = strmHost;
-                // sg.local.dst_dest = targetVfid;
+        while(curr_size <= max_size) { 
+            auto benchmark_thr = [&]() {
+                // Queue all transfers
+                for(int i = 0; i < n_reps; i++) {
+                    memset(&sg, 0, sizeof(localSg));
+                    sg.local.src_addr = inputData[i];
+                    sg.local.src_len = curr_size;
+                    sg.local.src_stream = strmHost;
+                    // sg.local.src_dest = targetVfid;
 
-                if(i == n_reps-1) sg_flags.last = true;
-                
-                cthread->invoke(CoyoteOper::LOCAL_TRANSFER, &sg, sg_flags);
-            }
+                    sg.local.dst_addr = &hashResults[i * SHA256_DIGEST_LENGTH];
+                    sg.local.dst_len = SHA256_DIGEST_LENGTH;
+                    sg.local.dst_stream = strmHost;
+                    // sg.local.dst_dest = targetVfid;
 
-            // Wait for all transfers with timeout
-            auto start_time = std::chrono::high_resolution_clock::now();
-            while(cthread->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != n_reps) {
-                if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
-                
-                auto current_time = std::chrono::high_resolution_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>
-                             (current_time - start_time).count();
-                
-                if (elapsed > 30) {
-                    throw std::runtime_error("Transfers timeout");
+                    // if(i == n_reps-1) sg_flags.last = true;
+                    
+                    cthread->invoke(CoyoteOper::LOCAL_TRANSFER, &sg, sg_flags);
                 }
-            }
-        };
 
-        bench.runtime(benchmark_thr);
+                while(cthread->checkCompleted(CoyoteOper::LOCAL_TRANSFER) != n_reps) {
+                    if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
+                }
 
-        // Print results
-        std::cout << std::fixed << std::setprecision(2);
-        std::cout << "Size: " << std::setw(8) << size << ", thr: " 
-                  << std::setw(8) << (1000 * size) / (bench.getAvg() / n_reps) 
-                  << " MB/s" << std::endl << std::endl;
+                timer_value = (uint32_t) cthread->getCSR(static_cast<uint32_t>(BenchRegs::TIMER_REG));
+                // time_bench.emplace_back(cthread.getCSR(static_cast<uint32_t>(BenchRegs::TIMER_REG)));
+            };
+
+            bench.runtime(benchmark_thr);
+
+            // Print results
+            std::cout << "size: " << curr_size << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps) << " ns" << std::endl;
+            std::cout << "clock cycle: " << timer_value << std::endl;
+
+            curr_size *= 2;
+        }
 
         // Print hash results
         for(int i = 0; i < n_reps; i++) {

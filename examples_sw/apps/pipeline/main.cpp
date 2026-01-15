@@ -47,8 +47,8 @@
 #include "cThread.hpp"
 
 // #define EN_THR_TESTS
-#define EN_DIRECT_TESTS
-// #define EN_INTER_2_TESTS
+// #define EN_DIRECT_TESTS
+#define EN_INTER_2_TESTS
 // #define EN_INTER_3_TESTS
 
 using namespace std;
@@ -64,7 +64,7 @@ void gotInt(int) {
 /* Def params */
 constexpr auto const defDevice = 0;
 
-constexpr auto const nRegions = 3;
+constexpr auto const nRegions = 2;
 constexpr auto const defHuge = true;
 constexpr auto const defMappped = true;
 constexpr auto const defStream = 1;
@@ -175,7 +175,6 @@ int main(int argc, char *argv[])
 #ifdef EN_DIRECT_TESTS
     // direct connection for each vFPGA
 
-
     // for cyt_top_dtu_3_0122
     sg[0].local.offset_r = 0;
     sg[0].local.offset_w = 0;
@@ -185,30 +184,10 @@ int main(int argc, char *argv[])
     sg[1].local.offset_w = 0;
     cthread[1]->ioSwitch(IODevs::Inter_3_TO_HOST_1);
     cthread[1]->ioSwDbg();
-    sg[2].local.offset_r = 0;
-    sg[2].local.offset_w = 0;
-    cthread[2]->ioSwitch(IODevs::Inter_3_TO_HOST_2);
-    cthread[2]->ioSwDbg();
-
-    // // for cyt_top_dtu_2_mux_ila_0114
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_TO_HOST_0);
-    // cthread[0]->ioSwDbg();
-    // sg[1].local.offset_r = 0;
-    // sg[1].local.offset_w = 0;
-    // cthread[1]->ioSwitch(IODevs::Inter_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
-
-    // // for cyt_top_dtu_2_ila_0108, cyt_top_dtu_2_ila_0111
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_HOST_TO_DTU_0 | IODevs::Inter_DTU_TO_HOST_0);
-    // cthread[0]->ioSwDbg();
-    // sg[1].local.offset_r = 0;
-    // sg[1].local.offset_w = 0;
-    // cthread[1]->ioSwitch(IODevs::Inter_HOST_TO_DTU_1 | IODevs::Inter_DTU_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
+    // sg[2].local.offset_r = 0;
+    // sg[2].local.offset_w = 0;
+    // cthread[2]->ioSwitch(IODevs::Inter_3_TO_HOST_2);
+    // cthread[2]->ioSwDbg();
 
 #endif
 
@@ -221,41 +200,11 @@ int main(int argc, char *argv[])
     sg[0].local.offset_w = 6;
     sg[1].local.offset_r = 6;
     sg[1].local.offset_w = 0;
-    cthread[0]->ioSwitch(IODevs::Inter_3_TO_DTU_1);
+    cthread[0]->ioSwitch(IODevs::Inter_2_TO_DTU_1);
     cthread[0]->ioSwDbg();
-    cthread[1]->ioSwitch(IODevs::Inter_3_TO_HOST_1);
+    cthread[1]->ioSwitch(IODevs::Inter_2_TO_HOST_1);
     cthread[1]->ioSwDbg();
 
-    // sg[1].local.offset_r = 0;
-    // sg[1].local.offset_w = 6;
-    // sg[2].local.offset_r = 6;
-    // sg[2].local.offset_w = 0;
-    // cthread[1]->ioSwitch(IODevs::Inter_3_TO_DTU_2);
-    // cthread[1]->ioSwDbg();
-    // cthread[2]->ioSwitch(IODevs::Inter_3_TO_HOST_2);
-    // cthread[2]->ioSwDbg();
-
-    // // for cyt_top_dtu_2_mux_ila_0114
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 6;
-    // sg[1].local.offset_r = 6;
-    // sg[1].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_TO_DTU_1);
-    // cthread[0]->ioSwDbg();
-    // cthread[1]->ioSwitch(IODevs::Inter_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
-
-
-    // // from vFPGA 0 to vFPGA 1
-    // // for cyt_top_dtu_2_ila_0108, cyt_top_dtu_2_ila_0111
-    // sg[0].local.offset_r = 0;
-    // sg[0].local.offset_w = 6;
-    // sg[1].local.offset_r = 6;
-    // sg[1].local.offset_w = 0;
-    // cthread[0]->ioSwitch(IODevs::Inter_HOST_TO_DTU_0 | IODevs::Inter_DTU_TO_DTU_1);
-    // cthread[0]->ioSwDbg();
-    // cthread[1]->ioSwitch(IODevs::Inter_DTU_TO_HOST_1);
-    // cthread[1]->ioSwDbg();
 #endif
 
 #ifdef EN_INTER_3_TESTS
@@ -310,7 +259,7 @@ int main(int argc, char *argv[])
         auto benchmark_lat = [&]() {
             // Transfer the data
             for(int i = 0; i < n_reps_lat; i++) {
-                for(int j = 2; j < 3; j++) {
+                for(int j = 0; j < n_regions; j++) {
                     cthread[j]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[j], {true, true, false});
                     while(cthread[j]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
                         if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");           
@@ -359,7 +308,6 @@ int main(int argc, char *argv[])
 #endif
 
         std::cout << "Size: " << std::setw(8) << curr_size << ", lat: " << std::setw(8) << bench.getAvg() / (n_reps_lat) << " ns" << std::endl;
-        std::cout << "size: " << curr_size << std::endl;
 
         curr_size *= 2;
     }

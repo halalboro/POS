@@ -266,26 +266,29 @@ int main(int argc, char *argv[])
                 sg[0].local.offset_r = 0;
                 sg[0].local.offset_w = 6;
 
+                sg[1].local.src_stream = stream;
+                sg[1].local.dst_stream = stream;
+
+                // for direct connection
+                sg[1].local.offset_r = 6;
+                sg[1].local.offset_w = 6;
+
                 cthread[0]->ioSwitch(IODevs::Inter_2_TO_DTU_0);
                 cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
 
-
-                for (int j = 0; j < 150; j++) {
-                    for (int k = 0; k < 100; k++) {
-                        dynamicArray[j][k] = 1000;
-                    }
-                }
-
-                sg[0].local.offset_r = 6;
-                sg[0].local.offset_w = 0;
-                // this_thread::sleep_for(std::chrono::nanoseconds(1));
-                cthread[0]->ioSwitch(IODevs::Inter_2_TO_HOST_0);
-                cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
-
-                while(cthread[0]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
-                    if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
-
+                // while(cthread[0]->checkCompleted(CoyoteOper::LOCAL_READ) != 1) 
+                //     if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
+                // sg[0].local.offset_r = 6;
+                // sg[0].local.offset_w = 0;
+                // cthread[0]->ioSwitch(IODevs::Inter_2_TO_HOST_0);
+                cthread[0]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
+                
                 cthread[0]->userData();
+                cthread[0]->userData();
+
+                // while(cthread[0]->checkCompleted(CoyoteOper::LOCAL_WRITE) != 1) 
+                //     if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
+
 
                 // sg[1].local.src_stream = stream;
                 // sg[1].local.dst_stream = stream;
@@ -306,6 +309,30 @@ int main(int argc, char *argv[])
                 //     if(stalled.load()) throw std::runtime_error("Stalled, SIGINT caught");
 
                 // cthread[1]->userData();
+
+
+                // sg[0].local.src_stream = stream;
+                // sg[0].local.dst_stream = stream;
+
+                // // for direct connection
+                // sg[0].local.offset_r = 0;
+                // sg[0].local.offset_w = 6;
+
+                // sg[1].local.src_stream = stream;
+                // sg[1].local.dst_stream = stream;
+
+                // // for direct connection
+                // sg[1].local.offset_r = 6;
+                // sg[1].local.offset_w = 6;
+
+                // cthread[1]->ioSwitch(IODevs::Inter_2_TO_DTU_1);
+                // cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[0], {true, true, false});
+
+                // cthread[1]->invoke(CoyoteOper::LOCAL_TRANSFER, &sg[1], {true, true, false});
+                
+                // cthread[1]->userData();
+                // cthread[1]->userData();
+
 
                 // sg[0].local.src_stream = strmCard;
                 // sg[0].local.dst_stream = strmCard;
