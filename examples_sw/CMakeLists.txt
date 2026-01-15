@@ -53,6 +53,12 @@ if(EXAMPLE STREQUAL "perf_mem")
     message("** Example: Test using fpga memory")
 endif()
 
+# Used in conjunction with the default shell
+if(EXAMPLE STREQUAL "perf_counter")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_counter")
+    message("** Example: Test perf couter")
+endif()
+
 # Used in conjunction with the microshell
 if(EXAMPLE STREQUAL "pipeline")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/pipeline")
@@ -100,6 +106,19 @@ if(EXAMPLE STREQUAL "speech")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech")
     message("** Example: Test speech pipeline app")
 endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "digi_base")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi_base")
+    message("** Example: Test digi baseline app")
+endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "speech_base")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech_base")
+    message("** Example: Test speech baseline app")
+endif()
+
 
 # FPGA perf benchmark
 if(EXAMPLE STREQUAL "perf_fpga")
