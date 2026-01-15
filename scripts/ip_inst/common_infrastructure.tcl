@@ -218,7 +218,9 @@ create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_
 set_property -dict [list CONFIG.NUM_MI {2} CONFIG.NUM_SI {2} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_2_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_4_0
-set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_4_0]
+set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_4_0]
+set_property -dict [list CONFIG.M00_AXIS_BASETDEST {0x00} CONFIG.M01_AXIS_BASETDEST {0x20} CONFIG.M02_AXIS_BASETDEST {0x40} CONFIG.M03_AXIS_BASETDEST {0x60} CONFIG.M00_AXIS_HIGHTDEST {0x0000001F} CONFIG.M01_AXIS_HIGHTDEST {0x0000003F} CONFIG.M02_AXIS_HIGHTDEST {0x5F} CONFIG.M03_AXIS_HIGHTDEST {0x7f}] [get_ips axis_switch_4_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_6_0
 set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {3} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
+

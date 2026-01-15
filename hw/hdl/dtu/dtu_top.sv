@@ -100,7 +100,12 @@ module dtu_top #(
     (* mark_debug = "true" *) output logic                                axisr_ul_src_tvalid,
     (* mark_debug = "true" *) output logic[PID_BITS-1:0]                  axisr_ul_src_tid, 
 
-    input logic [7:0]                           route_in
+    input logic [7:0]                           host_route_cap,
+    input logic [7:0]                           route_in,
+    output logic [7:0]                          route_out,
+
+    input logic [1:0]                           port_in,
+    output logic [1:0]                          port_out
 );
 
     // Host descriptors
@@ -306,6 +311,27 @@ module dtu_top #(
 
     `META_ASSIGN(local_cred_rd_host, bpss_rd_req_int)
     `META_ASSIGN(local_cred_wr_host, bpss_wr_req_int)
+
+    // Gateways
+    gate_send #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_gate_send (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .host_route_cap_in(host_route_cap),
+        .ul_port_in(port_in),
+        .route_out(route_out)
+    );
+
+    gate_recv #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_gate_recv (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .host_route_cap_in(host_route_cap),
+        .route_in(route_in),
+        .ul_port_out(port_out)
+    );
 
     //
     // Remote credits

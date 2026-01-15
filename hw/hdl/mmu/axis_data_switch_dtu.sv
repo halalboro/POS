@@ -63,8 +63,7 @@ module axis_data_switch_dtu #(
 
 // For axi stream switch decode error
 logic [3:0] axis_switch_0_s_decode_err;
-logic [2*N_ID-1:0][2:0] axis_switch_0_m_tdest;
-
+logic [N_ID-1:0][7:0] axis_switch_0_m_tdest;
 
 // ----------------------------------------------------------------------------------------------------------------------- 
 // -- Mux 
@@ -119,9 +118,9 @@ logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_dtu_src_tkeep;
 logic [N_ID-1:0]                        data_dtu_src_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_dtu_src_tid;
 
-for(genvar i = 0; i < N_ID; i++) begin
-    assign route_out[i] = route_in[i];
-end
+// for(genvar i = 0; i < N_ID; i++) begin
+//     assign route_out[i] = route_in[i];
+// end
 
 
 
@@ -149,16 +148,16 @@ end
 axis_switch_4_0 inst_axis_switch_0 (
     .aclk(aclk),
     .aresetn(aresetn),
-    .m_axis_tdata({data_dtu_src_tdata[1], data_dtu_src_tdata[0], data_host_src_tdata[1], data_host_src_tdata[0]}),
-    .m_axis_tdest({axis_switch_0_m_tdest[5], axis_switch_0_m_tdest[4], axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-    .m_axis_tready({data_dtu_src_tready[2], data_dtu_src_tready[1], data_dtu_src_tready[0], data_host_src_tready[2], data_host_src_tready[1], data_host_src_tready[0]}),
-    .m_axis_tvalid({data_dtu_src_tvalid[2], data_dtu_src_tvalid[1], data_dtu_src_tvalid[0], data_host_src_tvalid[2], data_host_src_tvalid[1], data_host_src_tvalid[0]}),
-    .m_axis_tid({data_dtu_src_tid[2], data_dtu_src_tid[1], data_dtu_src_tid[0], data_host_src_tid[2], data_host_src_tid[1], data_host_src_tid[0]}),
-    .s_axis_tdata({data_dtu_sink_tdata[2], data_dtu_sink_tdata[1], data_dtu_sink_tdata[0], data_host_sink_tdata[2], data_host_sink_tdata[1], data_host_sink_tdata[0]}),
-    .s_axis_tdest({route_in[2][5:3], route_in[1][5:3], route_in[0][5:3], route_in[1][2:0], route_in[1][2:0], route_in[0][2:0]}),
-    .s_axis_tready({data_dtu_sink_tready[2], data_dtu_sink_tready[1], data_dtu_sink_tready[0], data_host_sink_tready[2], data_host_sink_tready[1], data_host_sink_tready[0]}),
-    .s_axis_tvalid({data_dtu_sink_tvalid[1], data_dtu_sink_tvalid[1], data_dtu_sink_tvalid[0], data_host_sink_tvalid[2], data_host_sink_tvalid[1], data_host_sink_tvalid[0]}),
-    .s_axis_tid({data_dtu_sink_tid[2], data_dtu_sink_tid[1], data_dtu_sink_tid[0], data_host_sink_tid[2], data_host_sink_tid[1], data_host_sink_tid[0]}),
+    .m_axis_tdata({data_dtu_src_tdata, data_host_src_tdata}),
+    .m_axis_tdest({route_out, axis_switch_0_m_tdest}),
+    .m_axis_tready({data_dtu_src_tready, data_host_src_tready}),
+    .m_axis_tvalid({data_dtu_src_tvalid, data_host_src_tvalid}),
+    .m_axis_tid({data_dtu_src_tid, data_host_src_tid}),
+    .s_axis_tdata({data_dtu_sink_tdata, data_host_sink_tdata}),
+    .s_axis_tdest({route_in[1], route_in[0], 8'b01111100, 8'b01011100}),
+    .s_axis_tready({data_dtu_sink_tready, data_host_sink_tready}),
+    .s_axis_tvalid({data_dtu_sink_tvalid, data_host_sink_tvalid}),
+    .s_axis_tid({data_dtu_sink_tid, data_host_sink_tid}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
 
