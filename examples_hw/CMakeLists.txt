@@ -81,6 +81,279 @@ if(EXAMPLE STREQUAL "dtu_3")
     create_hw()
 endif()
 
+if(EXAMPLE STREQUAL "1dfft_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "fft2svm_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/fft2svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_1fs1")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_2")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/svm"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/fft2svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_121")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_211")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_local_121")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local_2"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_local_12f")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local_2"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_21p")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "vidstream")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/2dfft"
+        VFPGA_C0_1 "apps/mul"
+        VFPGA_C0_2 "apps/2difft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi_sig")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/sha2"
+        VFPGA_C0_1 "apps/rsa"
+    )
+
+    create_hw()
+endif()
+
+
 #
 # Shells with examples
 #
