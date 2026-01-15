@@ -99,11 +99,16 @@ module cnfg_slave_avx #(
 
     // Control
     output logic                usr_irq,
+<<<<<<< HEAD
 
     output logic [131-1:0]      ep_ctrl, 
 
     // IO Control
     output logic [13:0]          io_ctrl
+=======
+    
+    output logic [(99*N_ENDPOINTS)-1:0] ep_ctrl
+>>>>>>> 87f6014f (final working memory gateway)
 );
 
 // -- Decl -------------------------------------------------------------------------------
@@ -1646,6 +1651,10 @@ begin
     end
 end    
 
+<<<<<<< HEAD
+=======
+assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][(99*N_ENDPOINTS)-1:0];
+>>>>>>> 87f6014f (final working memory gateway)
 
 //
 // DEBUG

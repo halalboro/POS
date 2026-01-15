@@ -157,6 +157,7 @@ metaIntf #(.STYPE(irq_pft_t)) rd_pfault_irq [N_REGIONS] (.*);
 logic [N_REGIONS-1:0][LEN_BITS-1:0] rd_pfault_rng;
 metaIntf #(.STYPE(irq_pft_t)) wr_pfault_irq [N_REGIONS] (.*);
 logic [N_REGIONS-1:0][LEN_BITS-1:0] wr_pfault_rng;
+<<<<<<< HEAD
 metaIntf #(.STYPE(irq_inv_t)) rd_invldt_irq [N_REGIONS] (.*);
 metaIntf #(.STYPE(irq_inv_t)) wr_invldt_irq [N_REGIONS] (.*);
 metaIntf #(.STYPE(pf_t)) rd_pfault_ctrl [N_REGIONS] (.*);
@@ -165,6 +166,18 @@ metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] (.*);
 
 logic [N_REGIONS-1:0][130:0]  ep_ctrl;
+=======
+metaIntf #(.STYPE(irq_inv_t)) rd_invldt_irq [N_REGIONS] ();
+metaIntf #(.STYPE(irq_inv_t)) wr_invldt_irq [N_REGIONS] ();
+metaIntf #(.STYPE(pf_t)) rd_pfault_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(pf_t)) wr_pfault_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] ();
+
+parameter integer N_ENDPOINTS = 1;
+
+logic [N_REGIONS-1:0][(99*N_ENDPOINTS)-1:0]   ep_ctrl;
+>>>>>>> 87f6014f (final working memory gateway)
 
 // Instantiate region MMUs
 for(genvar i = 0; i < N_REGIONS; i++) begin

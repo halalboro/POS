@@ -8,11 +8,15 @@ module memory_endpoints #(
     input logic aclk,
     input logic aresetn,
     
+<<<<<<< HEAD
     // Wide control signal input - packed configuration for all endpoints
     // Format per endpoint: [valid][access_rights][bound_addr][base_addr]
     // Per endpoint: 1 + 2 + 64 + 64 = 131 bits
     // For N_ENDPOINTS: 131 * N_ENDPOINTS bits
     input logic [131-1:0] ep_ctrl,
+=======
+    input logic [(99*N_ENDPOINTS)-1:0] ep_ctrl,
+>>>>>>> 87f6014f (final working memory gateway)
     
     // Endpoint registers output
     output endpoint_reg_t [N_ENDPOINTS-1:0] endpoint_regs
@@ -45,6 +49,7 @@ module memory_endpoints #(
         else begin
             // Update endpoint configurations from packed control signal
             for (int i = 0; i < N_ENDPOINTS; i++) begin
+<<<<<<< HEAD
                 // Calculate bit range for this endpoint
                 
                 // Extract fields for endpoint i
@@ -55,6 +60,16 @@ module memory_endpoints #(
                 
                 // VALIDATION: Check that base <= bound for valid endpoints
                 if (endpoint_regs[i].valid && 
+=======
+                // FIXED: Calculate bit offset inline
+                endpoint_regs[i].vaddr_base <= ep_ctrl[(i * EP_TOTAL_BITS) + EP_BASE_ADDR_OFFSET +: EP_BASE_ADDR_BITS];
+                endpoint_regs[i].vaddr_bound <= ep_ctrl[(i * EP_TOTAL_BITS) + EP_BOUND_ADDR_OFFSET +: EP_BOUND_ADDR_BITS];
+                endpoint_regs[i].access_rights <= ep_ctrl[(i * EP_TOTAL_BITS) + EP_ACCESS_OFFSET +: EP_ACCESS_BITS];
+                endpoint_regs[i].valid <= ep_ctrl[(i * EP_TOTAL_BITS) + EP_VALID_OFFSET +: EP_VALID_BITS];
+                
+                // VALIDATION: Check that base <= bound for valid endpoints
+                if (endpoint_regs[i].valid &&
+>>>>>>> 87f6014f (final working memory gateway)
                     (endpoint_regs[i].vaddr_base > endpoint_regs[i].vaddr_bound)) begin
                     // Invalid range - disable endpoint
                     endpoint_regs[i].valid <= 1'b0;

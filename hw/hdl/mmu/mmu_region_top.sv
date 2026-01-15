@@ -48,7 +48,7 @@ module mmu_region_top #(
     AXI4L.s   							s_axi_ctrl_lTlb,
 
     // Control interface for memory endpoints
-    input logic [(131*N_ENDPOINTS)-1:0] ep_ctrl,
+    input logic [(99*N_ENDPOINTS)-1:0] ep_ctrl,
 
 	// Requests user
 	metaIntf.s 						    s_bpss_rd_sq,
@@ -130,7 +130,10 @@ metaIntf #(.STYPE(req_t)) wr_req (.*);
 // Request interfaces - only authorized requests from memory gateway
 metaIntf #(.STYPE(req_t)) rd_req ();
 metaIntf #(.STYPE(req_t)) wr_req ();
+<<<<<<< HEAD
 >>>>>>> 7457014e (memory gateway working)
+=======
+>>>>>>> 87f6014f (final working memory gateway)
 
 // `META_ASSIGN(s_bpss_rd_sq, rd_req)
 // `META_ASSIGN(s_bpss_wr_sq, wr_req)
@@ -514,7 +517,11 @@ tlb_fsm #(
     for(genvar i = 0; i < N_CARD_AXI; i++) begin
         // DDMA
         mmu_credits_rd #(.ID_REG(ID_REG)) inst_rd_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_parsed[i]), .m_req(rd_DDMA_cred[i]), .rxfer(rxfer_card[i]));
+<<<<<<< HEAD
         mmu_credits_wr #(.ID_REG(ID_REG)) inst_wr_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(wr_DDMA_parsed[i]), .m_req(wr_DDMA_cred[i]), .wxfer(wxfer_card[i]));
+=======
+        mmu_credits_wr #(.ID_REG(ID_REG)) inst_wr_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_parsed[i]), .m_req(wr_DDMA_cred[i]), .wxfer(wxfer_card[i]));
+>>>>>>> 87f6014f (final working memory gateway)
 
         // Queueing
         dma_req_queue inst_rd_q_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_cred[i]), .m_req(m_rd_DDMA[i]));

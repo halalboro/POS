@@ -51,11 +51,15 @@ namespace coyote {
 //#define VERBOSE_DEBUG_2 // Reconfig
 #define VERBOSE_DEBUG_3 // Perf
 <<<<<<< HEAD
+<<<<<<< HEAD
 #define VERBOSE         // Debug
 >>>>>>> 9e4c9e1c (update host applications)
 =======
 // #define VERBOSE         // Debug
 >>>>>>> cec0396f (update host applications)
+=======
+// #define VERBOSE         // Debug
+>>>>>>> 87f6014f (final working memory gateway)
 
 // Register Coyote thread for a vFPGA
 #define IOCTL_REGISTER_CTID                 _IOW('F', 1, unsigned long)
@@ -159,7 +163,10 @@ namespace coyote {
 #define CTRL_VFID_MASK                      0xf
 #define CTRL_LEN_MASK                       0xffffffff
 #define CTRL_OFFS_MASK                      0x3f
+<<<<<<< HEAD
 >>>>>>> 9e4c9e1c (update host applications)
+=======
+>>>>>>> 87f6014f (final working memory gateway)
 
 #define PID_BITS                            6
 #define VFID_BITS                           4
@@ -243,7 +250,11 @@ enum class CoyoteAlloc {
     GPU = 4  // GPU-memory (required for the FPGA-GPU-DMA)
 };
 
+<<<<<<< HEAD
 enum class MemCapa : uint64_t {
+=======
+enum class MemCap : uint64_t {
+>>>>>>> 87f6014f (final working memory gateway)
     BASE_ADDRESS = 0xFFF1000000000000,
     END_ADDRESS  = 0xFFFFFFFFFFFFFFFF,
     ALL_PASS     = 0xF
@@ -318,7 +329,13 @@ inline IODevs operator|(IODevs lhs, IODevs rhs) {
     return static_cast<IODevs>(static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
 }
 
+<<<<<<< HEAD
 /// @brief AVX config registers, for more details see the HW implementation in cnfg_slave_avx.sv and struct vfpga_cnfg_regs
+=======
+/* AVX regs */
+// Control regs that get memory-mapped for controlling operations of the FPGA
+// These are the ones used for AVX-systems. Why is there a difference between AVX and legacy systems? 
+>>>>>>> 87f6014f (final working memory gateway)
 enum class CnfgAvxRegs : uint32_t {
     CTRL_REG = 0,
     ISR_REG = 1,
@@ -337,7 +354,11 @@ enum class CnfgAvxRegs : uint32_t {
     TCP_OPEN_CONN_REG = 14,
     TCP_OPEN_CONN_STAT_REG = 15,
     IO_SWITCH_REG = 53,
+<<<<<<< HEAD
     USER_DATA_REG = 54,
+=======
+    EP_CTRL_REG = 54,
+>>>>>>> 87f6014f (final working memory gateway)
     STAT_DMA_REG = 64
 };
 
@@ -381,7 +402,11 @@ enum class CnfgLegRegs : uint32_t {
     TCP_OPEN_PORT_REG = 48,
     TCP_OPEN_PORT_STAT_REG = 52,
     IO_SWITCH_REG = 53,
+<<<<<<< HEAD
     USER_DATA_REG = 54,
+=======
+    EP_CTRL_REG = 54,
+>>>>>>> 87f6014f (final working memory gateway)
     TCP_OPEN_CONN_REG = 56,
     TCP_OPEN_CONN_STAT_REG = 60,
     STAT_DMA_REG = 64,
@@ -764,6 +789,10 @@ struct fCnfg {
     #define htols(x)                          __bswap_16(x)
 #endif
 
+<<<<<<< HEAD
 }
 
 #endif // _COYOTE_CDEFS_HPP_
+=======
+}
+>>>>>>> 87f6014f (final working memory gateway)

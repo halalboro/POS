@@ -186,13 +186,18 @@ create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila
 set_property -dict [list CONFIG.C_NUM_OF_PROBES {10} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_2} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE8_WIDTH {8} CONFIG.C_PROBE9_WIDTH {8}] [get_ips ila_switch_2]
 
 create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_switch_4
+<<<<<<< HEAD
 set_property -dict [list CONFIG.C_NUM_OF_PROBES {20} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_4} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8} CONFIG.C_PROBE18_WIDTH {8} CONFIG.C_PROBE19_WIDTH {8}] [get_ips ila_switch_4]
+=======
+set_property -dict [list CONFIG.C_NUM_OF_PROBES {28} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_4} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE24_WIDTH {8} CONFIG.C_PROBE25_WIDTH {8} CONFIG.C_PROBE26_WIDTH {8} CONFIG.C_PROBE27_WIDTH {8}] [get_ips ila_switch_4]
+>>>>>>> 87f6014f (final working memory gateway)
 
 create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_switch_6
 set_property -dict [list CONFIG.C_NUM_OF_PROBES {18} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_switch_6} CONFIG.ALL_PROBE_SAME_MU_CNT {2} CONFIG.C_PROBE12_WIDTH {8} CONFIG.C_PROBE13_WIDTH {8} CONFIG.C_PROBE14_WIDTH {8} CONFIG.C_PROBE15_WIDTH {8} CONFIG.C_PROBE16_WIDTH {8} CONFIG.C_PROBE17_WIDTH {8} ] [get_ips ila_switch_6]
 
 create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_dtu
 set_property -dict [list CONFIG.C_NUM_OF_PROBES {12} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_dtu} CONFIG.ALL_PROBE_SAME_MU_CNT {2} ] [get_ips ila_dtu]
+<<<<<<< HEAD
 
 create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_mem_gate_signal
 set_property -dict [list \
@@ -261,6 +266,8 @@ set_property -dict [list \
     CONFIG.C_EN_STRG_QUAL {1} \
     CONFIG.ALL_PROBE_SAME_MU_CNT {2} \
 ] [get_ips ila_mem_gateway]
+=======
+>>>>>>> 87f6014f (final working memory gateway)
 
 # # Interconnect
 # create_ip -name axi_interconnect -vendor xilinx.com -library ip -version 2.1 -module_name axi_stream_interconnect_0
@@ -280,13 +287,20 @@ set_property -dict [list \
 # generate_target all [get_ips axi_stream_interconnect_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_0
-set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.DECODER_REG {1}] [get_ips axis_switch_0]
+set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.HAS_TLAST {1} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.DECODER_REG {1}] [get_ips axis_switch_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_2_0
+<<<<<<< HEAD
 set_property -dict [list CONFIG.NUM_MI {2} CONFIG.NUM_SI {2} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_2_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_4_0
 set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_4_0]
+=======
+set_property -dict [list CONFIG.NUM_MI {2} CONFIG.NUM_SI {2} CONFIG.HAS_TLAST {1} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {2} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_2_0]
+
+create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_4_0
+set_property -dict [list CONFIG.NUM_MI {4} CONFIG.NUM_SI {4} CONFIG.HAS_TLAST {1} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_4_0]
+>>>>>>> 87f6014f (final working memory gateway)
 set_property -dict [list CONFIG.M00_AXIS_BASETDEST {0x00} CONFIG.M01_AXIS_BASETDEST {0x20} CONFIG.M02_AXIS_BASETDEST {0x40} CONFIG.M03_AXIS_BASETDEST {0x60} \
     CONFIG.M00_AXIS_HIGHTDEST {0x0000001F} CONFIG.M01_AXIS_HIGHTDEST {0x0000003F} CONFIG.M02_AXIS_HIGHTDEST {0x5F} CONFIG.M03_AXIS_HIGHTDEST {0x7f}] [get_ips axis_switch_4_0]
 
@@ -296,7 +310,11 @@ set_property -dict [list CONFIG.M00_AXIS_BASETDEST {0x00} CONFIG.M01_AXIS_BASETD
     CONFIG.M00_AXIS_HIGHTDEST {0x3FF} CONFIG.M01_AXIS_HIGHTDEST {0x7FF} CONFIG.M02_AXIS_HIGHTDEST {0xBFF} CONFIG.M03_AXIS_HIGHTDEST {0xFFF}] [get_ips axis_switch_ceu_4_0]
 
 create_ip -name axis_switch -vendor xilinx.com -library ip -version 1.1 -module_name axis_switch_6_0
+<<<<<<< HEAD
 set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
+=======
+set_property -dict [list CONFIG.NUM_MI {6} CONFIG.NUM_SI {6} CONFIG.HAS_TLAST {1} CONFIG.TDATA_NUM_BYTES {64} CONFIG.TDEST_WIDTH {8} CONFIG.TID_WIDTH {6} CONFIG.DECODER_REG {1}] [get_ips axis_switch_6_0]
+>>>>>>> 87f6014f (final working memory gateway)
 set_property -dict [list CONFIG.M00_AXIS_BASETDEST {0x00} CONFIG.M01_AXIS_BASETDEST {0x20} \
     CONFIG.M02_AXIS_BASETDEST {0x40} CONFIG.M03_AXIS_BASETDEST {0x60} \
     CONFIG.M04_AXIS_BASETDEST {0x80} CONFIG.M05_AXIS_BASETDEST {0xA0} \

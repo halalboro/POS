@@ -169,6 +169,7 @@ public:
 	 */
 	void ioSwitch(IODevs io_dev);
 
+<<<<<<< HEAD
 	void memCap(MemCapa base_addr, MemCapa top_addr, MemCapa permission);
 	
 	void ioSwDbg();
@@ -177,6 +178,13 @@ public:
 	 * @brief Get user data
 	 */
 	void userData();
+=======
+	void MemCap(MemCap base_addr, MemCap top_addr, MemCap permission);
+	
+	void ioSwDbg();
+
+	void epconfig();
+>>>>>>> 87f6014f (final working memory gateway)
 
 	/**
 	 * @brief Invoke a transfer of data 
@@ -233,4 +241,3 @@ public:
 };
 
 } /* namespace fpga */
-

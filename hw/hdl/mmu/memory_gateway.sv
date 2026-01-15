@@ -9,7 +9,11 @@ module memory_gateway #(
     input logic aresetn,
     
     // Control interface
+<<<<<<< HEAD
     input logic [131-1:0] ep_ctrl,
+=======
+    input logic [(99*N_ENDPOINTS)-1:0] ep_ctrl,
+>>>>>>> 87f6014f (final working memory gateway)
     
     // Original DMA interfaces (unfiltered inputs)
     metaIntf.s s_rd_req,
@@ -37,6 +41,7 @@ module memory_gateway #(
     logic rd_access_allowed, wr_access_allowed;
     logic violation_detected;
 
+<<<<<<< HEAD
 ila_mem_gateway inst_ila_mem_gateway (
     .clk(aclk),
     .probe0(endpoint_regs[0].valid),
@@ -55,6 +60,8 @@ ila_mem_gateway inst_ila_mem_gateway (
     .probe13(s_wr_req.valid)
 );
 
+=======
+>>>>>>> 87f6014f (final working memory gateway)
     // ----------------------------------------------------------------------------------------
     // Security Validation - Overflow-Safe Bounds Checking
     // ----------------------------------------------------------------------------------------
