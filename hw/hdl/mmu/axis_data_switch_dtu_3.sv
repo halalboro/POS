@@ -81,7 +81,7 @@ logic [N_ID-1:0][PID_BITS-1:0]                        data_host_sink_tid;
 
 logic [N_ID-1:0]                        data_host_src_tvalid;
 logic [N_ID-1:0]                        data_host_src_tready;
-logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_host_src_tdata;
+(* mark_debug = "true" *) logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_host_src_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_host_src_tkeep;
 logic [N_ID-1:0]                        data_host_src_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_host_src_tid;
@@ -115,7 +115,7 @@ logic [N_ID-1:0][PID_BITS-1:0]                        data_dtu_sink_tid;
 
 logic [N_ID-1:0]                        data_dtu_src_tvalid;
 logic [N_ID-1:0]                        data_dtu_src_tready;
-logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_dtu_src_tdata;
+(* mark_debug = "true" *) logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_dtu_src_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_dtu_src_tkeep;
 logic [N_ID-1:0]                        data_dtu_src_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]                        data_dtu_src_tid;
