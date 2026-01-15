@@ -22,8 +22,6 @@ set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.FIFO_DEPTH {128} CON
 create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_data_fifo_hbm_b
 set_property -dict [list CONFIG.TDATA_NUM_BYTES {0} CONFIG.TUSER_WIDTH {4} CONFIG.FIFO_DEPTH {128} ] [get_ips axis_data_fifo_hbm_b]
 
-<<<<<<< HEAD
-=======
 # Split
 create_ip -name axi_data_fifo -vendor xilinx.com -library ip -version 2.1 -module_name axi_data_fifo_shell_sink_int
 set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {512} CONFIG.ID_WIDTH {6} CONFIG.WRITE_FIFO_DEPTH {512} CONFIG.READ_FIFO_DEPTH {512} CONFIG.WRITE_FIFO_DELAY {1} CONFIG.READ_FIFO_DELAY {1}] [get_ips axi_data_fifo_shell_sink_int]
@@ -118,7 +116,6 @@ set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {64}] [get_ips
 # eval $cmd
 
 #
->>>>>>> cd35647c (add ceu support for more vfpgas. add old counter logics)
 # Stripe
 create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_data_fifo_stripe_b
 set_property -dict [list CONFIG.TDATA_NUM_BYTES {0} CONFIG.TUSER_WIDTH {2}] [get_ips axis_data_fifo_stripe_b]

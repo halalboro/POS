@@ -32,25 +32,21 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 /**
- * @brief   Top level MMU for a single vFPGA with Memory Gateway
+ * @brief   Top level MMU for a single vFPGA
  *
- * Top level of a single vFPGA TLB with access control, feeds into the top level arbitration.
+ * Top level of a single vFPGA TLB, feeds into the top level arbitration.
+ * Security validation is now handled by gate_send in vFIU before requests reach here.
  *
  *  @param ID_REG       Number of associated vFPGA
- *  @param N_ENDPOINTS  Number of memory endpoints for access control
  */
 module mmu_region_top #(
-	parameter integer 					ID_REG = 0,
-	parameter integer                   N_ENDPOINTS = 1	
+	parameter integer 					ID_REG = 0
 ) (
 	// AXI tlb control and writeback
     AXI4L.s   							s_axi_ctrl_sTlb,
     AXI4L.s   							s_axi_ctrl_lTlb,
 
-    // Control interface for memory endpoints
-    input logic [(99*N_ENDPOINTS)-1:0] ep_ctrl,
-
-	// Requests user
+	// Requests user (already validated by vFIU gate_send)
 	metaIntf.s 						    s_bpss_rd_sq,
 	metaIntf.s						    s_bpss_wr_sq,
 
@@ -122,40 +118,13 @@ tlbIntf #(.TLB_INTF_DATA_BITS(TLB_S_DATA_BITS)) sTlb ();
 AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_lTlb (.*);
 AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_sTlb (.*);
 
-<<<<<<< HEAD
-// Request interfaces
-metaIntf #(.STYPE(req_t)) rd_req (.*);
-metaIntf #(.STYPE(req_t)) wr_req (.*);
-=======
-// Request interfaces - only authorized requests from memory gateway
+// Request interfaces - requests are already validated by vFIU gate_send
 metaIntf #(.STYPE(req_t)) rd_req ();
 metaIntf #(.STYPE(req_t)) wr_req ();
-<<<<<<< HEAD
->>>>>>> 7457014e (memory gateway working)
-=======
->>>>>>> 87f6014f (final working memory gateway)
 
-// `META_ASSIGN(s_bpss_rd_sq, rd_req)
-// `META_ASSIGN(s_bpss_wr_sq, wr_req)
-
-// ----------------------------------------------------------------------------------------
-// Memory Gateway - Filters and only passes authorized requests
-// ----------------------------------------------------------------------------------------
-memory_gateway #(
-    .N_ENDPOINTS(N_ENDPOINTS)
-) inst_memory_gateway (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .ep_ctrl(ep_ctrl),
-    
-    // Original user requests
-    .s_rd_req(s_bpss_rd_sq),
-    .s_wr_req(s_bpss_wr_sq),
-    
-    // Only authorized requests pass through to TLB FSMs
-    .m_rd_req(rd_req),
-    .m_wr_req(wr_req)
-);
+// Direct pass-through - security validation done at vFIU level by gate_send
+`META_ASSIGN(s_bpss_rd_sq, rd_req)
+`META_ASSIGN(s_bpss_wr_sq, wr_req)
 
 // create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_mem_gateway
 // set_property -dict [list \
@@ -178,10 +147,11 @@ memory_gateway #(
 //     CONFIG.ALL_PROBE_SAME_MU_CNT {2} \
 // ] [get_ips ila_mem_gateway]
 
-ila_mem_gate_signal inst_ila_mem_gate_signal (
-    .clk(aclk),
-    .probe0(ep_ctrl_data)
-);
+// ILA removed - ep_ctrl no longer in this module (moved to vFIU gate_send)
+// ila_mem_gate_signal inst_ila_mem_gate_signal (
+//     .clk(aclk),
+//     .probe0(ep_ctrl_data)
+// );
 
 ila_mem_region_top_req_t inst_rd_req_ila (
     .clk(aclk),
@@ -517,11 +487,7 @@ tlb_fsm #(
     for(genvar i = 0; i < N_CARD_AXI; i++) begin
         // DDMA
         mmu_credits_rd #(.ID_REG(ID_REG)) inst_rd_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_parsed[i]), .m_req(rd_DDMA_cred[i]), .rxfer(rxfer_card[i]));
-<<<<<<< HEAD
-        mmu_credits_wr #(.ID_REG(ID_REG)) inst_wr_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(wr_DDMA_parsed[i]), .m_req(wr_DDMA_cred[i]), .wxfer(wxfer_card[i]));
-=======
         mmu_credits_wr #(.ID_REG(ID_REG)) inst_wr_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_parsed[i]), .m_req(wr_DDMA_cred[i]), .wxfer(wxfer_card[i]));
->>>>>>> 87f6014f (final working memory gateway)
 
         // Queueing
         dma_req_queue inst_rd_q_cred_ddma (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_cred[i]), .m_req(m_rd_DDMA[i]));

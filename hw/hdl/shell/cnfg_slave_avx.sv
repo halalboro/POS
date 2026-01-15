@@ -30,7 +30,8 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 module cnfg_slave_avx #(
-    parameter integer           ID_REG = 0 
+    parameter integer           ID_REG = 0,
+    parameter integer           N_ENDPOINTS = 4
 ) (
     input  logic                aclk,
     input  logic                aresetn,
@@ -99,16 +100,15 @@ module cnfg_slave_avx #(
 
     // Control
     output logic                usr_irq,
-<<<<<<< HEAD
-
-    output logic [131-1:0]      ep_ctrl, 
-
-    // IO Control
-    output logic [13:0]          io_ctrl
-=======
     
-    output logic [(99*N_ENDPOINTS)-1:0] ep_ctrl
->>>>>>> 87f6014f (final working memory gateway)
+    output logic [(99*N_ENDPOINTS)-1:0] mem_ctrl,
+
+    // IO control for vIO switch
+    output logic [13:0]             io_ctrl,
+
+    // VLAN control for VIU (similar to mem_ctrl for vFIU)
+    // Format: [13:10] reserved, [9:6] sender_ul_id, [5:2] reserved, [1:0] port_id
+    output logic [13:0]             vlan_ctrl
 );
 
 // -- Decl -------------------------------------------------------------------------------
@@ -378,7 +378,10 @@ localparam integer TCP_OPEN_CONN_STAT_REG                   = 15;
 // 53 (RW): IO Switch
 localparam integer IO_SWITCH_REG                            = 53;
 
-localparam integer EP_CTRL_BASE_REG = 54;        // Base register for EP control
+localparam integer MEM_CTRL_BASE_REG = 54;       // Base register for memory endpoint control
+
+// 55 (RW): VLAN control for VIU routing capability
+localparam integer VLAN_CTRL_REG = 55;
 
 // 64 (RO) : Status DMA completion
 localparam integer STAT_DMA_REG                             = 2**PID_BITS;
@@ -703,11 +706,18 @@ always_ff @(posedge aclk) begin
                         end
                     end
 
-                EP_CTRL_BASE_REG:
+                MEM_CTRL_BASE_REG:
                     // Write to EP control registers
                     for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
                         if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[EP_CTRL_BASE_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
+                            slv_reg[MEM_CTRL_BASE_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
+                        end
+                    end
+
+                VLAN_CTRL_REG: // VLAN control for VIU
+                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
+                        if(s_axim_ctrl.wstrb[i]) begin
+                            slv_reg[VLAN_CTRL_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
                         end
                     end
 
@@ -801,8 +811,11 @@ always_ff @(posedge aclk) begin
         [IO_SWITCH_REG:IO_SWITCH_REG]:
             axi_rdata <= slv_reg[IO_SWITCH_REG];
         
-        [EP_CTRL_BASE_REG:EP_CTRL_BASE_REG]:
-            axi_rdata <= slv_reg[EP_CTRL_BASE_REG];
+        [MEM_CTRL_BASE_REG:MEM_CTRL_BASE_REG]:
+            axi_rdata <= slv_reg[MEM_CTRL_BASE_REG];
+
+        [VLAN_CTRL_REG:VLAN_CTRL_REG]:
+            axi_rdata <= slv_reg[VLAN_CTRL_REG];
 
         [STAT_DMA_REG:STAT_DMA_REG+(2**PID_BITS)-1]: begin
             axi_mux <= 1'b1; 
@@ -1074,7 +1087,7 @@ assign usr_irq = irq_pending;
 
 // IO control
 assign io_ctrl = slv_reg[IO_SWITCH_REG][13:0];
-assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][131-1:0];
+assign mem_ctrl = slv_reg[MEM_CTRL_BASE_REG][131-1:0];
 (* mark_debug = "true" *) logic [OFFS_BITS-1:0] req_1_offs, req_2_offs;
 
 assign req_1_offs = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
@@ -1651,10 +1664,10 @@ begin
     end
 end    
 
-<<<<<<< HEAD
-=======
-assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][(99*N_ENDPOINTS)-1:0];
->>>>>>> 87f6014f (final working memory gateway)
+assign mem_ctrl = slv_reg[MEM_CTRL_BASE_REG][(99*N_ENDPOINTS)-1:0];
+
+// VLAN control output for VIU
+assign vlan_ctrl = slv_reg[VLAN_CTRL_REG][13:0];
 
 //
 // DEBUG

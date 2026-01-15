@@ -116,6 +116,14 @@ module design_dynamic_top #(
     // IRQ
     output logic[N_REGIONS-1:0]                 m_usr_irq,
 
+{% if cnfg.en_net %}
+    // VIU control (VLAN routing capability)
+    output logic [13:0]                         m_vlan_ctrl,
+    input  logic [1:0]                          s_viu_port_in,
+    output logic [13:0]                         m_viu_route_out,
+    output logic [1:0]                          m_viu_port_out,
+{% endif %}
+
     // Debug
     input  logic [N_REGIONS-1:0]                S_BSCAN_drck,
     input  logic [N_REGIONS-1:0]                S_BSCAN_shift,
@@ -273,12 +281,19 @@ module design_dynamic_top #(
     logic [N_REGIONS-1:0][1:0]   port_dtu_in;
     logic [N_REGIONS-1:0][1:0]   port_dtu_out;
 
+    // Endpoint control for security validation (99 bits per endpoint, 4 endpoints per region)
+    localparam N_ENDPOINTS = 4;
+    logic [N_REGIONS-1:0][(99*N_ENDPOINTS)-1:0] mem_ctrl;
+
+    // VLAN control for VIU routing capability (14 bits per region)
+    logic [N_REGIONS-1:0][13:0] vlan_ctrl;
+
     AXI4SR axisr_ul_out [N_REGIONS] ();
     AXI4SR axisr_ul_in [N_REGIONS] ();
     AXI4SR axisr_dtu_in [N_REGIONS] ();
     AXI4SR axisr_dtu_out [N_REGIONS] ();
 
-	axis_data_switch_ceu_{{ cnfg.n_reg }} inst_interconnect (
+	vio_switch_{{ cnfg.n_reg }} inst_interconnect (
         .aclk(aclk), 
         .aresetn(aresetn), 
         .route_in(route_dtu_out), 
@@ -1038,9 +1053,23 @@ module design_dynamic_top #(
         .m_wback(m_wback),
 {% endif %}	
         .usr_irq(m_usr_irq),
-        .io_ctrl_switch(io_ctrl_switch)
+        .io_ctrl_switch(io_ctrl_switch),
+        .mem_ctrl(mem_ctrl),
+        .vlan_ctrl(vlan_ctrl)
 	);
-	
+
+{% if cnfg.en_net %}
+    // VIU control - use region 0's vlan_ctrl for shared VIU
+    // TODO: For multi-region support, this should be selected based on active region
+    assign m_vlan_ctrl = vlan_ctrl[0];
+
+    // VIU port signals - directly connect for now
+    // In a multi-region setup, viu_port_in would indicate which region is sending
+    // and viu_port_out would indicate the destination region for received packets
+    assign m_viu_route_out = 14'b0;  // Will be connected when VIU is properly integrated
+    assign m_viu_port_out = 2'b0;    // Will be connected when VIU is properly integrated
+{% endif %}
+
     metaIntf #(.STYPE(req_t)) user_sq_rd_int [N_REGIONS] ();
     metaIntf #(.STYPE(req_t)) user_sq_wr_int [N_REGIONS] ();
 
@@ -1049,10 +1078,15 @@ module design_dynamic_top #(
 	// ================-----------------------------------------------------------------
 {% for i in range(0, cnfg.n_reg) %}
 
-    ceu_top inst_dtu_top_{{ i }} (
+    vfiu_top #(
+        .N_ENDPOINTS(N_ENDPOINTS)
+    ) inst_vfiu_top_{{ i }} (
         .aclk                   (aclk),
         .aresetn                (aresetn),
-        
+
+        // Endpoint control for security validation
+        .mem_ctrl                (mem_ctrl[{{ i }}]),
+
         // HOST DESC
         .host_sq_valid	                (host_sq_ul[{{ i }}].valid),
         .host_sq_ready	                (host_sq_ul[{{ i }}].ready),
@@ -1099,7 +1133,7 @@ module design_dynamic_top #(
         .axisr_ul_src_tvalid           (axisr_ul_in[{{ i }}].tvalid),
         .axisr_ul_src_tid              (axisr_ul_in[{{ i }}].tid),
 
-        .host_route_cap                (io_ctrl_switch[{{ i }}]),
+        .route_ctrl                    (io_ctrl_switch[{{ i }}]),
         .route_in                      (route_dtu_in[{{ i }}]),
         .route_out                     (route_dtu_out[{{ i }}]),
         .port_in                       (port_dtu_in[{{ i }}]),

@@ -106,6 +106,12 @@ module network_top #(
     metaIntf.s                  s_filter_config,
 `endif
 
+    // VIU control (VLAN routing capability)
+    input  logic [13:0]         vlan_ctrl,
+    input  logic [1:0]          viu_port_in,
+    output logic [13:0]         viu_route_out,
+    output logic [1:0]          viu_port_out,
+
     // Clocks
     input  wire                 aclk,
     input  wire                 aresetn,
@@ -177,9 +183,57 @@ network_ccross_early #(
     .nresetn(n_resetn),
     .s_axis_rclk(axis_r_clk_rx_data),
     .m_axis_rclk(axis_r_clk_tx_data),
-    .s_axis_nclk(axis_n_clk_tx_data),
-    .m_axis_nclk(axis_n_clk_rx_data)
-); 
+    .s_axis_nclk(axis_viu_tx_data),     // VIU TX -> clock crossing -> CMAC
+    .m_axis_nclk(axis_viu_rx_data)      // CMAC -> clock crossing -> VIU RX
+);
+
+/**
+ * VLAN Isolation Unit (VIU)
+ * Sits between clock crossing and network stack for VLAN-based routing validation.
+ * TX path: Network Stack -> VIU (insert VLAN tag) -> CMAC
+ * RX path: CMAC -> VIU (extract VLAN tag, validate) -> Network Stack
+ */
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_rx_data (.aclk(n_clk), .aresetn(n_resetn));  // From clock crossing (VLAN tagged)
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_tx_data (.aclk(n_clk), .aresetn(n_resetn));  // To clock crossing (VLAN tagged)
+
+viu_top #(
+    .N_ID(N_REGIONS)
+) inst_viu (
+    .aclk(n_clk),
+    .aresetn(n_resetn),
+
+    // Routing capability from host
+    .route_ctrl(vlan_ctrl),
+    .port_in(viu_port_in),
+    .route_out(viu_route_out),
+    .port_out(viu_port_out),
+
+    // TX path: untagged from network stack -> VLAN tagged to CMAC
+    .s_axis_tx_tdata(axis_n_clk_tx_data.tdata),
+    .s_axis_tx_tkeep(axis_n_clk_tx_data.tkeep),
+    .s_axis_tx_tlast(axis_n_clk_tx_data.tlast),
+    .s_axis_tx_tready(axis_n_clk_tx_data.tready),
+    .s_axis_tx_tvalid(axis_n_clk_tx_data.tvalid),
+
+    .m_axis_tx_tdata(axis_viu_tx_data.tdata),
+    .m_axis_tx_tkeep(axis_viu_tx_data.tkeep),
+    .m_axis_tx_tlast(axis_viu_tx_data.tlast),
+    .m_axis_tx_tready(axis_viu_tx_data.tready),
+    .m_axis_tx_tvalid(axis_viu_tx_data.tvalid),
+
+    // RX path: VLAN tagged from CMAC -> untagged to network stack
+    .s_axis_rx_tdata(axis_viu_rx_data.tdata),
+    .s_axis_rx_tkeep(axis_viu_rx_data.tkeep),
+    .s_axis_rx_tlast(axis_viu_rx_data.tlast),
+    .s_axis_rx_tready(axis_viu_rx_data.tready),
+    .s_axis_rx_tvalid(axis_viu_rx_data.tvalid),
+
+    .m_axis_rx_tdata(axis_n_clk_rx_data.tdata),
+    .m_axis_rx_tkeep(axis_n_clk_rx_data.tkeep),
+    .m_axis_rx_tlast(axis_n_clk_rx_data.tlast),
+    .m_axis_rx_tready(axis_n_clk_rx_data.tready),
+    .m_axis_rx_tvalid(axis_n_clk_rx_data.tvalid)
+);
 
 /**
  * Network stack
