@@ -37,7 +37,7 @@ import lynxTypes::*;
  *
  *  @param N_ID    Number of vFPGA regions
  */
-module axis_data_switch_2 #(
+module axis_data_switch_4 #(
     // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
     parameter integer N_ID = N_REGIONS
 ) (
@@ -123,25 +123,24 @@ for(genvar i = 0; i < N_ID; i++) begin
 end
 
 
-axis_switch_2_0 inst_axis_switch_0 (
+axis_switch_4_0 inst_axis_switch_0 (
     .aclk(aclk),
     .aresetn(aresetn),
-    .m_axis_tdata({data_ul_in_tdata[1], data_ul_in_tdata[0]}),
-    .m_axis_tdest({axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
-    .m_axis_tready({data_ul_in_tready[1], data_ul_in_tready[0]}),
-    .m_axis_tvalid({data_ul_in_tvalid[1], data_ul_in_tvalid[0]}),
-    .m_axis_tid({data_ul_in_tid[1], data_ul_in_tid[0]}),
-    .s_axis_tdata({data_ul_out_tdata[1], data_ul_out_tdata[0]}),
-    // .s_axis_tdest({2'b00,2'b01}),
-    .s_axis_tdest({io_ctrl[1][1:0], io_ctrl[0][1:0]}),
-    .s_axis_tready({data_ul_out_tready[1], data_ul_out_tready[0]}),
-    .s_axis_tvalid({data_ul_out_tvalid[1], data_ul_out_tvalid[0]}),
-    .s_axis_tid({data_ul_out_tid[1], data_ul_out_tid[0]}),
+    .m_axis_tdata({data_ul_in_tdata[3], data_ul_in_tdata[2], data_ul_in_tdata[1], data_ul_in_tdata[0]}),
+    .m_axis_tdest({axis_switch_0_m_tdest[3], axis_switch_0_m_tdest[2], axis_switch_0_m_tdest[1], axis_switch_0_m_tdest[0]}),
+    .m_axis_tready({data_ul_in_tready[3], data_ul_in_tready[2], data_ul_in_tready[1], data_ul_in_tready[0]}),
+    .m_axis_tvalid({data_ul_in_tvalid[3], data_ul_in_tvalid[2], data_ul_in_tvalid[1], data_ul_in_tvalid[0]}),
+    .m_axis_tid({data_ul_in_tid[3], data_ul_in_tid[2], data_ul_in_tid[1], data_ul_in_tid[0]}),
+    .s_axis_tdata({data_ul_out_tdata[3], data_ul_out_tdata[2], data_ul_out_tdata[1], data_ul_out_tdata[0]}),
+    .s_axis_tdest({io_ctrl[3][1:0], io_ctrl[2][1:0], io_ctrl[1][1:0], io_ctrl[0][1:0]}),
+    .s_axis_tready({data_ul_out_tready[3], data_ul_out_tready[2], data_ul_out_tready[1], data_ul_out_tready[0]}),
+    .s_axis_tvalid({data_ul_out_tvalid[3], data_ul_out_tvalid[2], data_ul_out_tvalid[1], data_ul_out_tvalid[0]}),
+    .s_axis_tid({data_ul_out_tid[3], data_ul_out_tid[2], data_ul_out_tid[1], data_ul_out_tid[0]}),
     .s_decode_err(axis_switch_0_s_decode_err)
 );
 
 
-ila_switch_2 inst_ila_switch (
+ila_switch_4 inst_ila_switch (
     .clk(aclk),
     .probe0(data_ul_in[0].tvalid),
     .probe1(data_ul_out[0].tvalid),
@@ -151,8 +150,18 @@ ila_switch_2 inst_ila_switch (
     .probe5(data_ul_out[0].tready),
     .probe6(data_ul_in[1].tready),
     .probe7(data_ul_out[1].tready),
-    .probe8(io_ctrl[0]),
-    .probe9(io_ctrl[1])
+    .probe8(data_ul_in[2].tvalid),
+    .probe9(data_ul_out[2].tvalid),
+    .probe10(data_ul_in[3].tvalid),
+    .probe11(data_ul_out[3].tvalid),
+    .probe12(data_ul_in[2].tready),
+    .probe13(data_ul_out[2].tready),
+    .probe14(data_ul_in[3].tready),
+    .probe15(data_ul_out[3].tready),
+    .probe16(io_ctrl[0]),
+    .probe17(io_ctrl[1]),
+    .probe18(io_ctrl[2]),
+    .probe19(io_ctrl[3])
 );
 
 // ila_interconnect_config inst_ila_interconnect_config (

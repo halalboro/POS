@@ -221,6 +221,8 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_reset,
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_capture,
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_bscanid_en,
+    // User logic interconnect
+    (* mark_debug = "true", io_buffer_type = "none" *) input  logic [7:0]                          io_ctrl,
 
     // Clock and reset
     (* io_buffer_type = "none" *) input  logic                                aclk,
@@ -583,6 +585,38 @@ module design_user_wrapper_{{ c_reg }} (
     // AXIS host
     `AXIS_ASSIGN(axis_host_sink, axis_host_sink_int)
     `AXIS_ASSIGN(axis_host_src_int, axis_host_src)
+
+
+    AXI4SR axis_user_recv_int [N_STRM_AXI] ();
+    AXI4SR axis_user_send_int [N_STRM_AXI] ();
+
+    always_comb begin
+        case(io_ctrl[3:2]) 
+            2'b00: begin
+                // normal I/O, does not involve interconnect
+                `AXISR_ASSIGN_CTS(axis_host_recv_int[0], axis_user_recv_int[0]);
+                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_host_send_int[0]);
+            end
+            2'b01: begin
+                // normal input from shell
+                `AXISR_ASSIGN_CTS(axis_host_recv_int[0], axis_user_recv_int[0]);
+                // user logic output to inter 
+                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_inter_src);
+                // receive inter input for output 
+                `AXISR_ASSIGN_CTS(axis_inter_sink, axis_host_send_int[0]);
+
+            end
+            2'b10: begin
+                // inter input
+                `AXISR_ASSIGN_CTS(axis_inter_sink, axis_user_recv_int[0]);
+                // inter output 
+                `AXISR_ASSIGN_CTS(axis_user_send_int[0], axis_inter_src);
+
+            end
+            default: 
+                ;
+        endcase
+    end
 
 {% endif %}
 {% if cnfg.en_mem %}
@@ -1082,8 +1116,8 @@ module design_user_wrapper_{{ c_reg }} (
         .rq_wr(user_rq_wr_int),
     {% endif %}
     {% if cnfg.en_strm %}
-        .axis_host_recv(axis_host_recv_int),
-        .axis_host_send(axis_host_send_int),
+        .axis_host_recv(axis_user_recv_int),
+        .axis_host_send(axis_user_send_int),
     {% endif %}
     {% if cnfg.en_mem %}
         .axis_card_recv(axis_card_recv_int),
