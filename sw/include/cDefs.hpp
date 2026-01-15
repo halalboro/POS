@@ -122,6 +122,104 @@ namespace coyote {
 //              CONTROL REGISTERS               //
 //////////////////////////////////////////////////
 
+#define PID_BITS                            6
+#define VFID_BITS                           4
+
+/* RDMA post */
+// More of these fields, specifically for RDMA-operations
+#define RDMA_POST_OFFS                      0x0
+#define RDMA_OPCODE_OFFS                    1
+#define RDMA_OPCODE_MASK                    0x1f
+#define RDMA_PID_OFFS                       6
+#define RDMA_PID_MASK                       0x3f
+#define RDMA_VFID_OFFS                      12
+#define RDMA_VFID_MASK                      0xf
+#define RDMA_HOST_OFFS                      16
+#define RDMA_MODE_OFFS                      17
+#define RDMA_LAST_OFFS                      18
+#define RDMA_CLR_OFFS                       19
+
+/* ltoh: little to host */
+/* htol: little to host */
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+#  define ltohl(x)                          (x)
+#  define ltohs(x)                          (x)
+#  define htoll(x)                          (x)
+#  define htols(x)                          (x)
+#elif __BYTE_ORDER == __BIG_ENDIAN
+#  define ltohl(x)                          __bswap_32(x)
+#  define ltohs(x)                          __bswap_16(x)
+#  define htoll(x)                          __bswap_32(x)
+#  define htols(x)                          __bswap_16(x)
+#endif
+
+
+// ======-------------------------------------------------------------------------------
+// Enum
+// ======-------------------------------------------------------------------------------
+
+// According to Zhenhao, these new Coyote operations are not really used, it's still the old CoyoteOper
+enum class CoyoteOperNew {
+    NOOP = 0,
+    LOCAL_READ_FROM_HOST = 1,
+    LOCAL_READ_FROM_CARD = 2,
+    LOCAL_WRITE_TO_HOST = 3,
+    LOCAL_WRITE_TO_CARD = 4,
+    LOCAL_MOVE_HOST_TO_CARD = 5,
+    LOCAL_MOVE_HOST_TO_HOST = 6,
+    LOCAL_MOVE_CARD_TO_HOST = 7,
+    LOCAL_MOVE_CARD_TO_CARD = 8,
+    LOCAL_OFFLOAD = 9,
+    LOCAL_SYNC = 10,
+    REMOTE_RDMA_READ_TO_HOST = 11,
+    REMOTE_RDMA_READ_TO_CARD = 11,
+    REMOTE_RDMA_WRITE_FROM_HOST = 11,
+    REMOTE_RDMA_WRITE_FROM_CARD = 11,
+    REMOTE_RDMA_SEND_FROM_HOST = 11,
+    REMOTE_RDMA_SEND_FROM_CARD = 11,
+    REMOTE_TCP_SEND_FROM_HOST = 11,
+    REMOTE_TCP_SEND_FROM_CARD = 11
+};
+
+
+enum class CoyoteOper {
+    NOOP = 0,
+    LOCAL_READ = 1,        // Transfer data from CPU or FPGA memory to FPGA stream (depending on sgEntry.local.src_stream)
+    LOCAL_WRITE = 2,       // Transfer data from FPGA stream to CPU or FPGA memory (depending on sgEntry.local.dst_stream)
+    LOCAL_TRANSFER = 3,    // LOCAL_READ and LOCAL_WRITE in parallel
+    LOCAL_OFFLOAD = 4,     // Transfer data from CPU memory to FPGA memory
+    LOCAL_SYNC = 5,        // Transfer data from FPGA memory to CPU memory
+    REMOTE_RDMA_READ = 6,  // RDMA READ to remote node
+    REMOTE_RDMA_WRITE = 7, // RDMA WRITE to remote node
+    REMOTE_RDMA_SEND = 8,  // RDMA SEND to remote node
+    REMOTE_TCP_SEND = 9    // TCP SEND to remote node
+};
+
+// What do these classes mean? - it's probably classes of memory allocation (regular, huge page, GPU etc.)
+enum class CoyoteAlloc {
+    REG = 0, // Regular
+    THP = 1, // Not quite clear what this is for, especially compared to HPF
+    HPF = 2, // Huge Page
+    PRM = 3, // Programmale Region Memory
+    GPU = 4  // GPU-memory (required for the FPGA-GPU-DMA)
+};
+
+/* IO devices */
+enum class IODevs : uint8_t {
+    ALL_DIRECT = 0b00000000,
+    Inter_TO_0 = 0b00000000,
+    Inter_TO_1 = 0b00000001,
+    Inter_TO_2 = 0b00000010,
+    Inter_TO_3 = 0b00000011,
+    WRAPPER_HOST_DIRECT = 0b00000000,
+    WRAPPER_PIPE_LEAD = 0b00000100,
+    WRAPPER_PIPE_MID = 0b00001000
+};
+
+inline IODevs operator|(IODevs lhs, IODevs rhs) {
+    return static_cast<IODevs>(static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
+}
+
 /// @brief AVX config registers, for more details see the HW implementation in cnfg_slave_avx.sv and struct vfpga_cnfg_regs
 enum class CnfgAvxRegs : uint32_t {
     CTRL_REG = 0,
