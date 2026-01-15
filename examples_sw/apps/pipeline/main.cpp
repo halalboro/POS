@@ -47,8 +47,8 @@
 #include "cThread.hpp"
 
 // #define EN_THR_TESTS
-// #define EN_DIRECT_TESTS
-#define EN_INTER_2_TESTS
+#define EN_DIRECT_TESTS
+// #define EN_INTER_2_TESTS
 // #define EN_INTER_3_TESTS
 
 using namespace std;
@@ -71,7 +71,7 @@ constexpr auto const defStream = 1;
 constexpr auto const nRepsThr = 1;
 constexpr auto const nRepsLat = 1;
 constexpr auto const defMinSize = 1 * 1024;
-constexpr auto const defMaxSize = 1 * 1024 * 1024;
+constexpr auto const defMaxSize = 1 * 1024;
 constexpr auto const nBenchRuns = 1;
 
 /**
@@ -178,11 +178,11 @@ int main(int argc, char *argv[])
     // for cyt_top_dtu_3_0122
     sg[0].local.offset_r = 0;
     sg[0].local.offset_w = 0;
-    cthread[0]->ioSwitch(IODevs::Inter_3_TO_HOST_0);
+    cthread[0]->ioSwitch(IODevs::Inter_2_TO_HOST_0);
     cthread[0]->ioSwDbg();
     sg[1].local.offset_r = 0;
     sg[1].local.offset_w = 0;
-    cthread[1]->ioSwitch(IODevs::Inter_3_TO_HOST_1);
+    cthread[1]->ioSwitch(IODevs::Inter_2_TO_HOST_1);
     cthread[1]->ioSwDbg();
     // sg[2].local.offset_r = 0;
     // sg[2].local.offset_w = 0;
@@ -191,6 +191,8 @@ int main(int argc, char *argv[])
 
 #endif
 
+    cthread[0]->memCap(MemCapa::BASE_ADDRESS, MemCapa::END_ADDRESS, MemCapa::ALL_PASS);
+    cthread[1]->memCap(MemCapa::BASE_ADDRESS, MemCapa::END_ADDRESS, MemCapa::ALL_PASS);
 
 #ifdef EN_INTER_2_TESTS
 
@@ -200,7 +202,7 @@ int main(int argc, char *argv[])
     sg[0].local.offset_w = 6;
     sg[1].local.offset_r = 6;
     sg[1].local.offset_w = 0;
-    cthread[0]->ioSwitch(IODevs::Inter_2_TO_DTU_1);
+    cthread[0]->ioSwitch(IODevs::Inter_2_TO_CEU_1);
     cthread[0]->ioSwDbg();
     cthread[1]->ioSwitch(IODevs::Inter_2_TO_HOST_1);
     cthread[1]->ioSwDbg();
@@ -213,11 +215,11 @@ int main(int argc, char *argv[])
     // for cyt_top_dtu_3_0122
     sg[0].local.offset_r = 0;
     sg[0].local.offset_w = 6;
-    cthread[0]->ioSwitch(IODevs::Inter_3_TO_DTU_1);
+    cthread[0]->ioSwitch(IODevs::Inter_3_TO_CEU_1);
     cthread[0]->ioSwDbg();
     sg[1].local.offset_r = 6;
     sg[1].local.offset_w = 6;
-    cthread[1]->ioSwitch(IODevs::Inter_3_TO_DTU_2);
+    cthread[1]->ioSwitch(IODevs::Inter_3_TO_CEU_2);
     cthread[1]->ioSwDbg();
     sg[2].local.offset_r = 6;
     sg[2].local.offset_w = 0;
