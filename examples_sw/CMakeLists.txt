@@ -48,10 +48,153 @@ if(EXAMPLE STREQUAL "perf_local")
 endif()
 
 # Used in conjunction with the default shell
+if(EXAMPLE STREQUAL "perf_mem")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_mem")
+    message("** Example: Test using fpga memory")
+endif()
+
+# Used in conjunction with the default shell
 if(EXAMPLE STREQUAL "perf_counter")
     set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_counter")
     message("** Example: Test perf couter")
 endif()
+
+# Used in conjunction with the microshell
+if(EXAMPLE STREQUAL "pipeline")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/pipeline")
+    message("** Example: Validation tests - Link perf")
+endif()
+
+# FPGA perf benchmark
+if(EXAMPLE STREQUAL "perf_fpga")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_fpga")
+    message("** Example: FPGA perf benchmark")
+endif()
+
+# Streaming services example
+if(EXAMPLE STREQUAL "streaming_server")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/streaming_service/server")
+    message("** Example: Streaming service - Server (Coyote daemon)")
+    include_directories(${TARGET_DIR}/../include ${TARGET_DIR}/include)
+endif()
+
+if(EXAMPLE STREQUAL "streaming_client")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/streaming_service/client")
+    message("** Example: Streaming service - Client")
+    include_directories(${TARGET_DIR}/../include)
+endif()
+
+# Streaming services example
+if(EXAMPLE STREQUAL "perf_server")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_service/server")
+    message("** Example: perf_local service - Server (Coyote daemon)")
+    include_directories(${TARGET_DIR}/../include ${TARGET_DIR}/include)
+endif()
+
+if(EXAMPLE STREQUAL "perf_client")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/perf_service/client")
+    message("** Example: perf_local service - Client")
+    include_directories(${TARGET_DIR}/../include)
+endif()
+
+if(EXAMPLE STREQUAL "multithreading")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/multithreading")
+    message("** Example: Multithreading")
+endif()
+
+# Kmeans example (unified memory)
+if(EXAMPLE STREQUAL "kmeans")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/kmeans")
+    message("** Example: K-Means kernel - Unified memory")
+endif()
+
+# Network - RDMA
+if(EXAMPLE STREQUAL "rdma_server")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rdma_service/server")
+    message("** Example: RDMA service - Server (Coyote daemon)")
+    include_directories(${TARGET_DIR}/../include)
+endif()
+
+if(EXAMPLE STREQUAL "rdma_client")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rdma_service/client")
+    message("** Example: RDMA service - Client")
+    include_directories(${TARGET_DIR}/../include)
+endif()
+
+# Network - TCP
+if(EXAMPLE STREQUAL "tcp_iperf")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/tcp_iperf")
+    message("**  Example: TCP - iperf")
+endif()
+
+# Application examples
+
+# 1DFFT
+if(EXAMPLE STREQUAL "1dfft")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/1dfft")
+    message("** Example: 1DFFT App")
+endif()
+
+# AES-CTR
+if(EXAMPLE STREQUAL "aes_ctr")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/aes_ctr")
+    message("** Example: AES-CTR App")
+endif()
+
+# RLE
+if(EXAMPLE STREQUAL "rle")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rle")
+    message("** Example: RLE App")
+endif()
+
+# RSA
+if(EXAMPLE STREQUAL "rsa")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/rsa")
+    message("** Example: RSA App")
+endif()
+
+# SHA2
+if(EXAMPLE STREQUAL "sha2")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/sha2")
+    message("** Example: SHA2 App")
+endif()
+
+# SVM
+if(EXAMPLE STREQUAL "svm")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/svm")
+    message("** Example: SVM App")
+endif()
+
+# Audio Processing
+if(EXAMPLE STREQUAL "audio")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/audio")
+    message("** Example: Audio Processing App")
+endif()
+
+# Digital Signature App
+if(EXAMPLE STREQUAL "digi_sign")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/digi_sign")
+    message("** Example: Digital Signature App")
+endif()
+
+# Secure Storage App
+if(EXAMPLE STREQUAL "secure")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/secure")
+    message("** Example: Secure Storage App")
+endif()
+
+# Secure Storage 2 App
+if(EXAMPLE STREQUAL "secure2")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/secure2")
+    message("** Example: Secure Storage 2 App")
+endif()
+
+# Speech Recognition App
+if(EXAMPLE STREQUAL "speech")
+    set(TARGET_DIR "${CYT_DIR}/examples_sw/apps/speech")
+    message("** Example: Speech Recognition App")
+endif()
+
 
 #
 # Create build targets

@@ -1,28 +1,29 @@
 /**
- * This file is part of the Coyote <https://github.com/fpgasystems/Coyote>
- *
- * MIT Licence
- * Copyright (c) 2021-2025, Systems Group, ETH Zurich
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+  * Copyright (c) 2021, Systems Group, ETH Zurich
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *
+  * 1. Redistributions of source code must retain the above copyright notice,
+  * this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  * 3. Neither the name of the copyright holder nor the names of its contributors
+  * may be used to endorse or promote products derived from this software
+  * without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+  * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
 
 `timescale 1ns / 1ps
 
@@ -86,7 +87,7 @@ module roce_stack (
 // SQ
 //
 
-metaIntf #(.STYPE(dreq_t)) rdma_sq (.aclk(nclk), .aresetn(nresetn));
+metaIntf #(.STYPE(dreq_t)) rdma_sq ();
 logic [RDMA_REQ_BITS-1:0] rdma_sq_data;
 
 always_comb begin
@@ -109,7 +110,7 @@ end
 // FC and CQ
 //
 
-metaIntf #(.STYPE(dack_t)) rdma_ack (.aclk(nclk), .aresetn(nresetn));
+metaIntf #(.STYPE(dack_t)) rdma_ack ();
 logic [RDMA_ACK_BITS-1:0] ack_meta_data;
 
 assign rdma_ack.data.ack.opcode = ack_meta_data[0+:OPCODE_BITS];
@@ -131,63 +132,15 @@ rdma_flow inst_rdma_flow (
     .m_ack(m_rdma_ack)
 );
 
-///////////////////////////////////////////////////////////////////////////
-//
-// Additions on the TX-path: Read Request Cutter sits before the ICRC and brings RDMA READ REQUESTs into the right format for Mellanox-cards
-//
-//////////////////////////////////////////////////////////////////////////
-
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) roce_to_icrc (.aclk(nclk), .aresetn(nresetn));
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) trimmer_to_icrc (.aclk(nclk), .aresetn(nresetn));
-
-// Read Request Cutter before the ICRC
-read_request_trimmer inst_read_request_trimmer (
-    .nclk(nclk), 
-    .nresetn(nresetn), 
-    .input_stream(roce_to_icrc), 
-    .output_stream(trimmer_to_icrc)
-);
+// Definition of the AXI-bus from roce-ip to icrc 
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) roce_to_icrc();
 
 // Integrate the ICRC-module on the outgoing datapath 
 icrc inst_icrc (
-    .m_axis_rx(trimmer_to_icrc), 
+    .m_axis_rx(roce_to_icrc), 
     .m_axis_tx(m_axis_tx), 
     .nclk(nclk), 
     .nresetn(nresetn)
-);
-
-///////////////////////////////////////////////////////////////////////////
-//
-// Additions on the RX-path: IPG-enforcer sits before the HLS-stack and enforces an IPG of 85 CCs between incoming RDMA ACKs 
-//
-//////////////////////////////////////////////////////////////////////////
-
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) fifo_to_gap_enforcer (.aclk(nclk), .aresetn(nresetn));
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) gap_enforcer_to_hls (.aclk(nclk), .aresetn(nresetn));
-
-// FIFO on the packet RX-path right before the IPG-enforcer to buffer incoming packets 
-axis_data_fifo_512_cc_tx incoming_traffic_fifo (
-  .s_axis_aresetn(nresetn),
-  .s_axis_aclk(nclk),
-  .s_axis_tvalid(s_axis_rx.tvalid),
-  .s_axis_tready(s_axis_rx.tready),
-  .s_axis_tdata(s_axis_rx.tdata),
-  .s_axis_tkeep(s_axis_rx.tkeep),
-  .s_axis_tlast(s_axis_rx.tlast),
-  //.m_axis_aclk(rclk),
-  .m_axis_tvalid(fifo_to_gap_enforcer.tvalid),
-  .m_axis_tready(fifo_to_gap_enforcer.tready),
-  .m_axis_tdata(fifo_to_gap_enforcer.tdata),
-  .m_axis_tkeep(fifo_to_gap_enforcer.tkeep),
-  .m_axis_tlast(fifo_to_gap_enforcer.tlast)
-);
-
-// IPG-enforcer to enforce gaps between ACKs 
-ack_gap_enforcer inst_ack_gap_enforcer (
-    .nclk(nclk),
-    .nresetn(nresetn),
-    .input_stream(fifo_to_gap_enforcer),
-    .output_stream(gap_enforcer_to_hls)
 );
 
 
@@ -195,12 +148,12 @@ ack_gap_enforcer inst_ack_gap_enforcer (
 // BUFF RQ
 //
 
-metaIntf #(.STYPE(req_t)) rdma_rd_req (.aclk(nclk), .aresetn(nresetn));
-metaIntf #(.STYPE(req_t)) rdma_wr_req (.aclk(nclk), .aresetn(nresetn));
+metaIntf #(.STYPE(req_t)) rdma_rd_req ();
+metaIntf #(.STYPE(req_t)) rdma_wr_req ();
 logic [RDMA_BASE_REQ_BITS-1:0] rd_cmd_data;
 logic [RDMA_BASE_REQ_BITS-1:0] wr_cmd_data;
 
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_rd (.aclk(nclk), .aresetn(nresetn));
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_rd ();
 
 // RD
 assign rdma_rd_req.data.opcode            = rd_cmd_data[0+:OPCODE_BITS];
@@ -267,44 +220,10 @@ assign rdma_wr_req.ready = m_rdma_wr_req.ready;
 // RoCE stack
 //
 
-/* ila_rdma inst_ila_rdma (
-    .clk(nclk),  
-    .probe0(s_rdma_qp_interface.valid), 
-    .probe1(s_rdma_qp_interface.ready), 
-    .probe2(s_rdma_qp_interface.data),     // 184
-    .probe3(s_rdma_conn_interface.valid), 
-    .probe4(s_rdma_conn_interface.ready), 
-    .probe5(s_rdma_conn_interface.data),   // 184
-    .probe6(s_rdma_sq.valid), 
-    .probe7(s_rdma_sq.ready),
-    .probe8(s_rdma_sq.data),               // 256
-    .probe9(m_rdma_rd_req.valid), 
-    .probe10(m_rdma_rd_req.ready), 
-    .probe11(m_rdma_rd_req.data),           // 128
-    .probe12(m_rdma_wr_req.valid), 
-    .probe13(m_rdma_wr_req.ready), 
-    .probe14(m_rdma_wr_req.data),           // 128           
-    .probe15(m_rdma_mem_rd_cmd.valid), 
-    .probe16(m_rdma_mem_rd_cmd.ready), 
-    .probe17(m_rdma_mem_rd_cmd.data),       // 96 
-    .probe18(m_rdma_mem_wr_cmd.valid), 
-    .probe19(m_rdma_mem_wr_cmd.ready), 
-    .probe20(m_rdma_mem_wr_cmd.data),       // 96 
-    .probe21(s_axis_rdma_rd_req.tvalid), 
-    .probe22(s_axis_rdma_rd_req.tdata),     // 512 
-    .probe23(s_axis_rdma_rd_req.tkeep),     // 64 
-    .probe24(s_axis_rdma_rd_req.tready), 
-    .probe25(s_axis_rdma_rd_req.tlast), 
-    .probe26(m_axis_rdma_wr.tvalid), 
-    .probe27(m_axis_rdma_wr.tdata),         // 512 
-    .probe28(m_axis_rdma_wr.tkeep),         // 64 
-    .probe29(m_axis_rdma_wr.tready), 
-    .probe30(m_axis_rdma_wr.tlast)
-); */ 
 
-/* 
-ila_rdma inst_ila_rdma (
+/* ila_rdma inst_ila_rdma (
   .clk(nclk),
+
   .probe0(s_rdma_sq.valid),
   .probe1(s_rdma_sq.ready),
   .probe2(rdma_sq.valid),
@@ -342,23 +261,12 @@ ila_rdma inst_ila_rdma (
   .probe34(s_rdma_conn_interface.valid),
   .probe35(s_rdma_conn_interface.ready),
   .probe36(rdma_rd_req.data), // 128
-  .probe37(rdma_wr_req.data), // 128
-  .probe38(s_axis_rx.tvalid), 
-  .probe39(s_axis_rx.tready),
-  .probe40(s_axis_rx.tdata), // 512
-  .probe41(s_axis_rx.tkeep), // 64
-  .probe42(s_axis_rx.tlast), 
-  .probe43(m_axis_tx.tvalid), 
-  .probe44(m_axis_tx.tready), 
-  .probe45(m_axis_tx.tdata), // 512
-  .probe46(m_axis_tx.tkeep), // 64
-  .probe47(m_axis_tx.tlast)
-); 
-*/ 
+); */ 
 
-metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_0 (.aclk(nclk), .aresetn(nresetn));
-metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_1 (.aclk(nclk), .aresetn(nresetn));
-metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_2 (.aclk(nclk), .aresetn(nresetn));
+
+metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_0 ();
+metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_1 ();
+metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_2 ();
 assign m_axis_dbg_0.ready = 1'b1;
 assign m_axis_dbg_1.ready = 1'b1;
 assign m_axis_dbg_2.ready = 1'b1;
@@ -385,11 +293,11 @@ rocev2_ip rocev2_inst(
 `endif
 
     // RX
-    .s_axis_rx_data_TVALID(gap_enforcer_to_hls.tvalid),
-    .s_axis_rx_data_TREADY(gap_enforcer_to_hls.tready),
-    .s_axis_rx_data_TDATA(gap_enforcer_to_hls.tdata),
-    .s_axis_rx_data_TKEEP(gap_enforcer_to_hls.tkeep),
-    .s_axis_rx_data_TLAST(gap_enforcer_to_hls.tlast),
+    .s_axis_rx_data_TVALID(s_axis_rx.tvalid),
+    .s_axis_rx_data_TREADY(s_axis_rx.tready),
+    .s_axis_rx_data_TDATA(s_axis_rx.tdata),
+    .s_axis_rx_data_TKEEP(s_axis_rx.tkeep),
+    .s_axis_rx_data_TLAST(s_axis_rx.tlast),
     
     // TX
     .m_axis_tx_data_TVALID(roce_to_icrc.tvalid),
@@ -462,11 +370,11 @@ rocev2_ip rocev2_inst(
 `endif
 
     // RX
-    .s_axis_rx_data_TVALID(gap_enforcer_to_hls.tvalid),
-    .s_axis_rx_data_TREADY(gap_enforcer_to_hls.tready),
-    .s_axis_rx_data_TDATA(gap_enforcer_to_hls.tdata),
-    .s_axis_rx_data_TKEEP(gap_enforcer_to_hls.tkeep),
-    .s_axis_rx_data_TLAST(gap_enforcer_to_hls.tlast),
+    .s_axis_rx_data_TVALID(s_axis_rx.tvalid),
+    .s_axis_rx_data_TREADY(s_axis_rx.tready),
+    .s_axis_rx_data_TDATA(s_axis_rx.tdata),
+    .s_axis_rx_data_TKEEP(s_axis_rx.tkeep),
+    .s_axis_rx_data_TLAST(s_axis_rx.tlast),
     
     // TX
     .m_axis_tx_data_TVALID(roce_to_icrc.tvalid),

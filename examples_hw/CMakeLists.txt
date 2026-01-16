@@ -40,3 +40,882 @@ if(EXAMPLE STREQUAL "static")
     create_hw()
 endif()
 
+if(EXAMPLE STREQUAL "dtu")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "dtu_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+<<<<<<< HEAD
+if(EXAMPLE STREQUAL "ceu_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+
+if(EXAMPLE STREQUAL "1dfft_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "fft2svm_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/fft2svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_1fs1")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_2")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/svm"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_3")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/fft2svm"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_121")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/fft2svm"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_211")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_local_121")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local_2"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "perf_local_12f")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_local"
+        VFPGA_C0_1 "apps/perf_local_2"
+        VFPGA_C0_2 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_21p")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/fft2svm"
+        VFPGA_C0_1 "apps/1dfft"
+        VFPGA_C0_2 "apps/perf_local"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "vidstream")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 3)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/2dfft"
+        VFPGA_C0_1 "apps/mul"
+        VFPGA_C0_2 "apps/2difft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi_sig")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/sha2"
+        VFPGA_C0_1 "apps/rsa"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "audio")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/rle"
+    )
+
+    create_hw()
+endif()
+
+
+if(EXAMPLE STREQUAL "secure_storage")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/aes_cbc_hls"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "secure_storage_2")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "secure2_digital")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 4)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "schedule_6")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 6)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+        VFPGA_C0_4 "apps/1dfft"
+        VFPGA_C0_5 "apps/rle"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "schedule_8")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 8)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa_module"
+        VFPGA_C0_2 "apps/sha2_module"
+        VFPGA_C0_3 "apps/rsa_module"
+        VFPGA_C0_4 "apps/1dfft"
+        VFPGA_C0_5 "apps/rle"
+        VFPGA_C0_6 "apps/sha2_module"
+        VFPGA_C0_7 "apps/1dfft"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi_module")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/sha2_module"
+        VFPGA_C0_1 "apps/rsa_module"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi_base")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/digital_signature"
+        VFPGA_C0_1 "apps/digital_signature"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech_base")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/speech"
+        VFPGA_C0_1 "apps/speech"
+    )
+
+    create_hw()
+endif()
+
+=======
+>>>>>>> 5bb12959 (applications--scripts--API)
+if(EXAMPLE STREQUAL "counter_dtu")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_counter"
+        VFPGA_C0_1 "apps/perf_counter"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "counter_hbm")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_counter"
+        VFPGA_C0_1 "apps/perf_counter"
+    )
+
+    create_hw()
+endif()
+
+#
+# Shells with examples
+#
+
+# Application examples, streaming examples
+# @brief: Streaming interface example
+# The first application is gradient boosting decision trees inference - RTL integration example
+# The second one is HyperLogLog cardinality estimation - HLS integration example
+#
+# @note: Floorplan provided for u55c only -> add manual app floorplans for other devices
+#
+if(EXAMPLE STREQUAL "streaming")
+    message("** Streaming examples: HyperLogLog (cardinality estimation), GBM decision trees (inference) and AES CBC mode")
+    set(SHELL_PROBE 1)
+    # set(FDEV_NAME "u55c")
+    set(N_REGIONS 1)
+    set(EN_STRM 1)
+    set(EN_MEM 0)
+    set(EN_PR 1)
+    set(N_CONFIG 2)
+    # set(FPLAN_PATH "${CMAKE_SOURCE_DIR}/floorplans/streaming_fplan_u55c.xdc")
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/hyperloglog"    
+        VFPGA_C1_0 "apps/gbm_dtrees"    
+    )
+
+    create_hw()
+endif()
+
+# @brief Shell add app
+# This is an example how a previous shell can be extended with additional application on the fly
+# This means you don't have to recompile the whole shell, just this new apps will additionally compiled
+#
+# @note: Need to provide a path to the existing shell build dir ($SHELL_PATH)
+#
+if(EXAMPLE STREQUAL "streaming_add_aes")
+    message("** Streaming examples: Add AES to the previous two apps (app build flow)")
+    set(BUILD_APP 1)
+    set(BUILD_SHELL 0)
+    set(N_CONFIG 1)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/aes_ecb"    
+    )
+
+    create_hw()
+endif()
+
+# @brief: AES encryption multithreading
+# Running multiple threads within one vFPGA
+#
+#
+if(EXAMPLE STREQUAL "multithreading")
+    message("** Streaming examples: Multithreading AES CBC")
+    set(SHELL_PROBE 2)
+    message("** FDEV_NAME is ${FDEV_NAME}")
+    # set(FDEV_NAME "u55c")
+    message("** FDEV_NAME is ${FDEV_NAME}")
+    set(N_REGIONS 1)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 8)
+    set(EN_MEM 0)
+    set(EN_PR 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/aes_cbc"
+    )
+
+    create_hw()
+endif()
+
+# Application example, KMeans algorithm
+# @brief: On-board memory example
+#
+# @note: Add a target device (FDEV_NAME) -> depending on the device HBM or MIG DRAM will be used (interface is the same)
+#
+if(EXAMPLE STREQUAL "kmeans")
+    message("** K-Means application example")
+    set(SHELL_PROBE 3)
+    set(N_REGIONS 2)
+    set(EN_MEM 1)
+    set(N_CARD_AXI 2)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/kmeans"
+        VFPGA_C0_1 "apps/kmeans"
+    )
+
+    create_hw()
+endif()
+
+# GPU example
+# @brief: GPU perf test
+#
+# @note: Add a target device (FDEV_NAME)
+#
+if(EXAMPLE STREQUAL "perf_gpu")
+    message("** GPU perf example")
+    set(SHELL_PROBE 4)
+    set(N_REGIONS 1)
+    set(EN_MEM 1)
+    set(N_CARD_AXI 2)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/kmeans"
+        VFPGA_C0_1 "apps/kmeans"
+    )
+
+    create_hw()
+endif()
+
+# Network example, RDMA
+# @brief: RDMA with AES encryption example
+#
+# @note: Add a target device (FDEV_NAME)
+#
+if(EXAMPLE STREQUAL "rdma_aes")
+    message("** RDMA AES-en(de)cryption test")
+    set(SHELL_PROBE 5)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(EN_MEM 1)
+    set(EN_RDMA 1)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rdma_base"
+        VFPGA_C0_1 "apps/rdma_aes"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "rdma_perf")
+    message("** RDMA perf test")
+    set(SHELL_PROBE 6)
+    set(N_REGIONS 1)
+    set(EN_STRM 1)
+    set(EN_RDMA 1)
+    set(N_STRM_AXI 2)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rdma_perf"
+    )
+
+    create_hw()
+endif()
+
+# Network example, TCP iperf
+# @brief: TCP iperf
+#
+# @note: Add a target device (FDEV_NAME)
+#
+if(EXAMPLE STREQUAL "tcp_iperf")
+    message("** TCP iperf")
+    set(SHELL_PROBE 7)
+    set(N_REGIONS 1)
+    set(EN_STRM 1)
+    set(EN_TCP 1)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/tcp_iperf"
+    )
+
+    create_hw()
+endif()
+
+#
+# Perf FPGA
+# @brief: Link benchmarks, FPGA initiated
+#
+# @note: Add a target device (FDEV_NAME)
+#
+
+if(EXAMPLE STREQUAL "perf_fpga")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(N_REGIONS 1)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    set(EN_MEM 0) # Should work with MEM as well
+    set(N_CARD_AXI 2)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/perf_fpga"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "audio")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/rle"
+    )
+
+    create_hw()
+endif()
+
+
+if(EXAMPLE STREQUAL "secure")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/aes_ctr"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "secure2")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/rle"
+        VFPGA_C0_1 "apps/rsa"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "digi")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/sha2"
+        VFPGA_C0_1 "apps/rsa"
+    )
+
+    create_hw()
+endif()
+
+if(EXAMPLE STREQUAL "speech")
+    set(BUILD_STATIC 1)
+    set(BUILD_SHELL 0)
+    set(BUILD_OPT 1)
+    set(N_REGIONS 2)
+    set(EN_STRM 1)
+    set(N_STRM_AXI 2)
+    # set(EN_MEM 1)
+    set(HBM_SPLIT 0)
+
+    validation_checks_hw()
+
+    load_apps (
+        VFPGA_C0_0 "apps/1dfft"
+        VFPGA_C0_1 "apps/svm"
+    )
+
+    create_hw()
+endif()

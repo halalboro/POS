@@ -169,11 +169,14 @@ public:
 	 */
 	void ioSwitch(IODevs io_dev);
 
-	void MemCap(MemCap base_addr, MemCap top_addr, MemCap permission);
+	void memCap(MemCapa base_addr, MemCapa top_addr, MemCapa permission);
 	
 	void ioSwDbg();
 
-	void memconfig();
+	/**
+	 * @brief Get user data
+	 */
+	void userData();
 
 	/**
 	 * @brief Invoke a transfer of data 
@@ -230,3 +233,4 @@ public:
 };
 
 } /* namespace fpga */
+

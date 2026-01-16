@@ -14,6 +14,7 @@
 #include <random>
 
 #include "bThread.hpp"
+#define EN_AVX
 using namespace std::chrono;
 
 namespace fpga {
@@ -610,6 +611,22 @@ void bThread::ioSwitch(IODevs io_dev) {
 		cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::IO_SWITCH_REG)] = static_cast<uint8_t>(io_dev);
 };
 
+/**
+ * @brief IO control switch
+ * 
+ * @param io_dev - target IO device
+ */
+void bThread::memCap(MemCapa base_addr, MemCapa top_addr, MemCapa permission) {
+	#ifdef EN_AVX
+	if(fcnfg.en_avx){
+        // std::cout << "in en_avx ioSwitch: " << static_cast<int>(io_dev) << std::endl;
+		cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)] = _mm256_set_epi64x(0, 0, static_cast<uint64_t>(top_addr), static_cast<uint64_t>(base_addr));
+	}
+	else
+#endif
+		cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::USER_DATA_REG)] = static_cast<uint32_t>(base_addr);
+};
+
 void bThread::ioSwDbg() {
 	std::cout << "IO switch register: " << _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)], 0x3) 
 		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)], 0x2)
@@ -621,26 +638,11 @@ void bThread::ioSwDbg() {
 	// std::cout << _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::IO_SWITCH_REG)], 0x0) << std::endl;
 }
 
-/**
- * @brief Memory Gateway
- * 
- * @param io_dev - target MMU
- */
-void bThread::MemCap(MemCap base_addr, MemCap top_addr, MemCap permission) {
-	#ifdef EN_AVX
-	if(fcnfg.en_avx){
-		cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::MEM_CTRL_REG)] = _mm256_set_epi64x(0, 0, static_cast<uint64_t>(top_addr), static_cast<uint64_t>(base_addr));
-	}
-	else
-#endif
-		cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::MEM_CTRL_REG)] = static_cast<uint32_t>(base_addr);
-};
-
-void bThread::memconfig() {
-	std::cout << "Memory control register: " << _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::MEM_CTRL_REG)], 0x3)
-		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::MEM_CTRL_REG)], 0x2)
-		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::MEM_CTRL_REG)], 0x1)
-		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::MEM_CTRL_REG)], 0x0) << std::endl;
+void bThread::userData() {
+	std::cout << "User data register: " << _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)], 0x3) 
+		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)], 0x2)
+		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)], 0x1)
+		<< _mm256_extract_epi64(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::USER_DATA_REG)], 0x0) << std::endl;
 }
 
 // ======-------------------------------------------------------------------------------

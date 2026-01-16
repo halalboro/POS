@@ -1,28 +1,29 @@
 /**
- * This file is part of the Coyote <https://github.com/fpgasystems/Coyote>
- *
- * MIT Licence
- * Copyright (c) 2021-2025, Systems Group, ETH Zurich
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+  * Copyright (c) 2021, Systems Group, ETH Zurich
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *
+  * 1. Redistributions of source code must retain the above copyright notice,
+  * this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  * 3. Neither the name of the copyright holder nor the names of its contributors
+  * may be used to endorse or promote products derived from this software
+  * without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+  * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
 
 `timescale 1ns / 1ps
 
@@ -32,21 +33,25 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 /**
- * @brief   Top level MMU for a single vFPGA
+ * @brief   Top level MMU for a single vFPGA with Memory Gateway
  *
- * Top level of a single vFPGA TLB, feeds into the top level arbitration.
- * Security validation is now handled by gate_send in vFIU before requests reach here.
+ * Top level of a single vFPGA TLB with access control, feeds into the top level arbitration.
  *
  *  @param ID_REG       Number of associated vFPGA
+ *  @param N_ENDPOINTS  Number of memory endpoints for access control
  */
 module mmu_region_top #(
-	parameter integer 					ID_REG = 0
+	parameter integer 					ID_REG = 0,
+	parameter integer                   N_ENDPOINTS = 1	
 ) (
 	// AXI tlb control and writeback
     AXI4L.s   							s_axi_ctrl_sTlb,
     AXI4L.s   							s_axi_ctrl_lTlb,
 
-	// Requests user (already validated by vFIU gate_send)
+    // Control interface for memory endpoints
+    input logic [(131*N_ENDPOINTS)-1:0] ep_ctrl,
+
+	// Requests user
 	metaIntf.s 						    s_bpss_rd_sq,
 	metaIntf.s						    s_bpss_wr_sq,
 
@@ -115,16 +120,34 @@ tlbIntf #(.TLB_INTF_DATA_BITS(TLB_S_DATA_BITS)) wr_sTlb ();
 tlbIntf #(.TLB_INTF_DATA_BITS(TLB_L_DATA_BITS)) lTlb ();
 tlbIntf #(.TLB_INTF_DATA_BITS(TLB_S_DATA_BITS)) sTlb ();
 
-AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_lTlb (.*);
-AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_sTlb (.*);
+AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_lTlb ();
+AXI4S #(.AXI4S_DATA_BITS(AXI_TLB_BITS)) axis_sTlb ();
 
-// Request interfaces - requests are already validated by vFIU gate_send
+// Request interfaces - only authorized requests from memory gateway
 metaIntf #(.STYPE(req_t)) rd_req ();
 metaIntf #(.STYPE(req_t)) wr_req ();
 
-// Direct pass-through - security validation done at vFIU level by gate_send
-`META_ASSIGN(s_bpss_rd_sq, rd_req)
-`META_ASSIGN(s_bpss_wr_sq, wr_req)
+// `META_ASSIGN(s_bpss_rd_sq, rd_req)
+// `META_ASSIGN(s_bpss_wr_sq, wr_req)
+
+// ----------------------------------------------------------------------------------------
+// Memory Gateway - Filters and only passes authorized requests
+// ----------------------------------------------------------------------------------------
+memory_gateway #(
+    .N_ENDPOINTS(N_ENDPOINTS)
+) inst_memory_gateway (
+    .aclk(aclk),
+    .aresetn(aresetn),
+    .ep_ctrl(ep_ctrl),
+    
+    // Original user requests
+    .s_rd_req(s_bpss_rd_sq),
+    .s_wr_req(s_bpss_wr_sq),
+    
+    // Only authorized requests pass through to TLB FSMs
+    .m_rd_req(rd_req),
+    .m_wr_req(wr_req)
+);
 
 // create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_mem_gateway
 // set_property -dict [list \
@@ -147,11 +170,10 @@ metaIntf #(.STYPE(req_t)) wr_req ();
 //     CONFIG.ALL_PROBE_SAME_MU_CNT {2} \
 // ] [get_ips ila_mem_gateway]
 
-// ILA removed - ep_ctrl no longer in this module (moved to vFIU gate_send)
-// ila_mem_gate_signal inst_ila_mem_gate_signal (
-//     .clk(aclk),
-//     .probe0(ep_ctrl_data)
-// );
+ila_mem_gate_signal inst_ila_mem_gate_signal (
+    .clk(aclk),
+    .probe0(ep_ctrl_data)
+);
 
 ila_mem_region_top_req_t inst_rd_req_ila (
     .clk(aclk),
@@ -250,7 +272,7 @@ always_ff @(posedge aclk) begin
 			if((mutex[1] == 1'b0) && rd_unlock)
 				mutex <= 2'b01;
 			else if (wr_unlock)
-				mutex <= 2'b11;
+				mutex <= 2'b01;
 		end
 	end
 end

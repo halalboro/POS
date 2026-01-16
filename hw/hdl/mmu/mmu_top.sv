@@ -1,28 +1,29 @@
 /**
- * This file is part of the Coyote <https://github.com/fpgasystems/Coyote>
- *
- * MIT Licence
- * Copyright (c) 2021-2025, Systems Group, ETH Zurich
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+  * Copyright (c) 2021, Systems Group, ETH Zurich
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *
+  * 1. Redistributions of source code must retain the above copyright notice,
+  * this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  * 3. Neither the name of the copyright holder nor the names of its contributors
+  * may be used to endorse or promote products derived from this software
+  * without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+  * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
 
 `timescale 1ns / 1ps
 
@@ -91,8 +92,6 @@ module mmu_top #(
     dmaIntf.m                           m_rd_CDMA_card [N_REGIONS*N_CARD_AXI],
     dmaIntf.m                           m_wr_CDMA_card [N_REGIONS*N_CARD_AXI],
 
-    metaIntf.m                          m_rd_fwd_last_card [N_REGIONS * N_CARD_AXI],
-
 `ifndef EN_CRED_LOCAL
     input  logic                        rxfer_card [N_REGIONS*N_CARD_AXI],
     input  logic                        wxfer_card [N_REGIONS*N_CARD_AXI],
@@ -128,13 +127,7 @@ module mmu_top #(
 	output logic [N_REGIONS-1:0]    	usr_irq,
 
     // IO Control switches
-    output logic [N_REGIONS-1:0][13:0]  io_ctrl_switch,
-
-    // Endpoint control for security validation (99 bits per endpoint, 4 endpoints per region)
-    output logic [N_REGIONS-1:0][(99*4)-1:0] mem_ctrl,
-
-    // VLAN control for VIU routing capability (14 bits per region)
-    output logic [N_REGIONS-1:0][13:0] vlan_ctrl
+    output logic [N_REGIONS-1:0][13:0]  io_ctrl_switch
 );
 
 //
@@ -145,32 +138,30 @@ module mmu_top #(
     dmaIntf rd_HDMA_arb [N_REGIONS] ();
     dmaIntf wr_HDMA_arb [N_REGIONS] ();
 
-    metaIntf #(.STYPE(ack_t)) rd_host_done [N_REGIONS] (.*);
-    metaIntf #(.STYPE(ack_t)) wr_host_done [N_REGIONS] (.*);
+    metaIntf #(.STYPE(ack_t)) rd_host_done [N_REGIONS] ();
+    metaIntf #(.STYPE(ack_t)) wr_host_done [N_REGIONS] ();
 `endif
 
 `ifdef EN_MEM
     dmaIntf rd_DDMA_assign [N_REGIONS*N_CARD_AXI] ();
     dmaIntf wr_DDMA_assign [N_REGIONS*N_CARD_AXI] ();
 
-    metaIntf #(.STYPE(ack_t)) rd_card_done [N_REGIONS] (.*);
-    metaIntf #(.STYPE(ack_t)) wr_card_done [N_REGIONS] (.*);
-
-    metaIntf #(.STYPE(logic)) wr_fwd_last_card [N_REGIONS * N_CARD_AXI] (.*);
+    metaIntf #(.STYPE(ack_t)) rd_card_done [N_REGIONS] ();
+    metaIntf #(.STYPE(ack_t)) wr_card_done [N_REGIONS] ();
 `endif
 
-metaIntf #(.STYPE(irq_pft_t)) rd_pfault_irq [N_REGIONS] (.*);
+metaIntf #(.STYPE(irq_pft_t)) rd_pfault_irq [N_REGIONS] ();
 logic [N_REGIONS-1:0][LEN_BITS-1:0] rd_pfault_rng;
-metaIntf #(.STYPE(irq_pft_t)) wr_pfault_irq [N_REGIONS] (.*);
+metaIntf #(.STYPE(irq_pft_t)) wr_pfault_irq [N_REGIONS] ();
 logic [N_REGIONS-1:0][LEN_BITS-1:0] wr_pfault_rng;
-metaIntf #(.STYPE(irq_inv_t)) rd_invldt_irq [N_REGIONS] (.*);
-metaIntf #(.STYPE(irq_inv_t)) wr_invldt_irq [N_REGIONS] (.*);
-metaIntf #(.STYPE(pf_t)) rd_pfault_ctrl [N_REGIONS] (.*);
-metaIntf #(.STYPE(pf_t)) wr_pfault_ctrl [N_REGIONS] (.*);
-metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] (.*);
-metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] (.*);
+metaIntf #(.STYPE(irq_inv_t)) rd_invldt_irq [N_REGIONS] ();
+metaIntf #(.STYPE(irq_inv_t)) wr_invldt_irq [N_REGIONS] ();
+metaIntf #(.STYPE(pf_t)) rd_pfault_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(pf_t)) wr_pfault_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] ();
+metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] ();
 
-// mem_ctrl is now an output port (99*4 bits per region for 4 endpoints)
+logic [N_REGIONS-1:0][130:0]  ep_ctrl;
 
 // Instantiate region MMUs
 for(genvar i = 0; i < N_REGIONS; i++) begin
@@ -180,30 +171,30 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
     ) inst_mmu_region (
         .aclk(aclk),
         .aresetn(aresetn),
-        .s_axi_ctrl_sTlb(s_axi_ctrl_sTlb[i]), //
+        .s_axi_ctrl_sTlb(s_axi_ctrl_sTlb[i]), // 
         .s_axi_ctrl_lTlb(s_axi_ctrl_lTlb[i]), //
-        .s_bpss_rd_sq(s_bpss_rd_sq[i]), //
-		.s_bpss_wr_sq(s_bpss_wr_sq[i]), //
+        .s_bpss_rd_sq(s_bpss_rd_sq[i]), // 
+		.s_bpss_wr_sq(s_bpss_wr_sq[i]), // 
     `ifdef EN_STRM
-        .m_rd_HDMA(rd_HDMA_arb[i]), //
-        .m_wr_HDMA(wr_HDMA_arb[i]), //
+        .m_rd_HDMA(rd_HDMA_arb[i]), // 
+        .m_wr_HDMA(wr_HDMA_arb[i]), // 
         .m_rd_host_done(rd_host_done[i]),
         .m_wr_host_done(wr_host_done[i]),
     `ifndef EN_CRED_LOCAL
-        .rxfer_host(rxfer_host[i]), //
+        .rxfer_host(rxfer_host[i]), // 
         .wxfer_host(wxfer_host[i]), //
     `endif
     `endif
     `ifdef EN_MEM
-        .m_rd_DDMA(rd_DDMA_assign[i*N_CARD_AXI+:N_CARD_AXI]), //
-        .m_wr_DDMA(wr_DDMA_assign[i*N_CARD_AXI+:N_CARD_AXI]), //
-        .m_rd_card_done(rd_card_done[i]),
+        .m_rd_DDMA(rd_DDMA_assign[i*N_CARD_AXI+:N_CARD_AXI]), // 
+        .m_wr_DDMA(wr_DDMA_assign[i*N_CARD_AXI+:N_CARD_AXI]), // 
+        .m_rd_card_done(rd_card_done[i]), 
         .m_wr_card_done(wr_card_done[i]),
     `ifndef EN_CRED_LOCAL
-        .rxfer_card(rxfer_card[i*N_CARD_AXI+:N_CARD_AXI]), //
-        .wxfer_card(wxfer_card[i*N_CARD_AXI+:N_CARD_AXI]), //
-    `endif
-    `endif
+        .rxfer_card(rxfer_card[i*N_CARD_AXI+:N_CARD_AXI]), // 
+        .wxfer_card(wxfer_card[i*N_CARD_AXI+:N_CARD_AXI]), // 
+    `endif 
+    `endif  
         .m_rd_pfault_irq(rd_pfault_irq[i]),
         .m_rd_pfault_rng(rd_pfault_rng[i]),
         .s_rd_pfault_ctrl(rd_pfault_ctrl[i]),
@@ -214,7 +205,8 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
         .s_rd_invldt_ctrl(rd_invldt_ctrl[i]),
         .m_rd_invldt_irq(rd_invldt_irq[i]),
         .s_wr_invldt_ctrl(wr_invldt_ctrl[i]),
-        .m_wr_invldt_irq(wr_invldt_irq[i])
+        .m_wr_invldt_irq(wr_invldt_irq[i]),
+        .ep_ctrl(ep_ctrl[i])
     );
 
 end
@@ -227,10 +219,8 @@ end
 
 `ifdef EN_MEM
     for(genvar i = 0; i < N_CARD_AXI * N_REGIONS; i++) begin
-        mmu_assign inst_ddma_assign_rd (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_assign[i]), .m_req(m_rd_CDMA_card[i]), .m_fwd_last(m_rd_fwd_last_card[i]));
-        mmu_assign inst_ddma_assign_wr (.aclk(aclk), .aresetn(aresetn), .s_req(wr_DDMA_assign[i]), .m_req(m_wr_CDMA_card[i]), .m_fwd_last(wr_fwd_last_card[i]));
-
-        assign wr_fwd_last_card[i].ready = 1'b1; // We don't need the last forwarding for the write path
+        mmu_assign inst_ddma_assign_rd (.aclk(aclk), .aresetn(aresetn), .s_req(rd_DDMA_assign[i]), .m_req(m_rd_CDMA_card[i]));
+        mmu_assign inst_ddma_assign_wr (.aclk(aclk), .aresetn(aresetn), .s_req(wr_DDMA_assign[i]), .m_req(m_wr_CDMA_card[i]));
     end
 `endif 
 
@@ -244,30 +234,30 @@ end
 `endif
 
 `ifdef EN_NET
-    metaIntf #(.STYPE(logic[ARP_LUP_REQ_BITS-1:0])) arp_lookup_request [N_REGIONS] (.*);
+    metaIntf #(.STYPE(logic[ARP_LUP_REQ_BITS-1:0])) arp_lookup_request [N_REGIONS] ();
 `endif
 
 `ifdef EN_RDMA
-    metaIntf #(.STYPE(rdma_qp_ctx_t)) rdma_qp_interface [N_REGIONS] (.*);
-    metaIntf #(.STYPE(rdma_qp_conn_t)) rdma_conn_interface [N_REGIONS] (.*);
+    metaIntf #(.STYPE(rdma_qp_ctx_t)) rdma_qp_interface [N_REGIONS] ();
+    metaIntf #(.STYPE(rdma_qp_conn_t)) rdma_conn_interface [N_REGIONS] ();
 `endif
 
 `ifdef EN_TCP
-    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_port_cmd [N_REGIONS] (.*);
-    metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_port_sts [N_REGIONS] (.*);
-    metaIntf #(.STYPE(tcp_open_req_r_t)) open_conn_cmd [N_REGIONS] (.*);
-    metaIntf #(.STYPE(tcp_open_rsp_r_t)) open_conn_sts [N_REGIONS] (.*);
+    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_port_cmd [N_REGIONS] ();
+    metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_port_sts [N_REGIONS] ();
+    metaIntf #(.STYPE(tcp_open_req_r_t)) open_conn_cmd [N_REGIONS] ();
+    metaIntf #(.STYPE(tcp_open_rsp_r_t)) open_conn_sts [N_REGIONS] ();
 `endif
 
 `ifdef EN_WB
-    metaIntf #(.STYPE(wback_t)) wback [N_REGIONS] (.*);
+    metaIntf #(.STYPE(wback_t)) wback [N_REGIONS] ();
 `endif 
 
 // Instantiate region controllers
 for(genvar i = 0; i < N_REGIONS; i++) begin
 
     `ifdef EN_AVX
-        cnfg_slave_avx #(.ID_REG(i), .N_ENDPOINTS(4)) inst_cnfg_slave (
+        cnfg_slave_avx #(.ID_REG(i)) inst_cnfg_slave (
     `else
         cnfg_slave #(.ID_REG(i)) inst_cnfg_slave (
     `endif
@@ -323,8 +313,7 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
             .s_notify(s_notify[i]), //
             
             .usr_irq(usr_irq[i]), //
-            .mem_ctrl(mem_ctrl[i]),
-            .vlan_ctrl(vlan_ctrl[i]),
+            .ep_ctrl(ep_ctrl[i]),
             .io_ctrl(io_ctrl_switch[i])
         );
 

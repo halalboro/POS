@@ -1,28 +1,29 @@
 /**
- * This file is part of the Coyote <https://github.com/fpgasystems/Coyote>
- *
- * MIT Licence
- * Copyright (c) 2021-2025, Systems Group, ETH Zurich
- * All rights reserved.
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
-
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
-
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
- */
+  * Copyright (c) 2021, Systems Group, ETH Zurich
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without modification,
+  * are permitted provided that the following conditions are met:
+  *
+  * 1. Redistributions of source code must retain the above copyright notice,
+  * this list of conditions and the following disclaimer.
+  * 2. Redistributions in binary form must reproduce the above copyright notice,
+  * this list of conditions and the following disclaimer in the documentation
+  * and/or other materials provided with the distribution.
+  * 3. Neither the name of the copyright holder nor the names of its contributors
+  * may be used to endorse or promote products derived from this software
+  * without specific prior written permission.
+  *
+  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+  * IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+  * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
 
 import lynxTypes::*;
 
@@ -30,8 +31,7 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 module cnfg_slave_avx #(
-    parameter integer           ID_REG = 0,
-    parameter integer           N_ENDPOINTS = 4
+    parameter integer           ID_REG = 0 
 ) (
     input  logic                aclk,
     input  logic                aresetn,
@@ -100,15 +100,11 @@ module cnfg_slave_avx #(
 
     // Control
     output logic                usr_irq,
-    
-    output logic [(99*N_ENDPOINTS)-1:0] mem_ctrl,
 
-    // IO control for vIO switch
-    output logic [13:0]             io_ctrl,
+    output logic [131-1:0]      ep_ctrl, 
 
-    // VLAN control for VIU (similar to mem_ctrl for vFIU)
-    // Format: [13:10] reserved, [9:6] sender_ul_id, [5:2] reserved, [1:0] port_id
-    output logic [13:0]             vlan_ctrl
+    // IO Control
+    output logic [13:0]          io_ctrl
 );
 
 // -- Decl -------------------------------------------------------------------------------
@@ -169,18 +165,18 @@ logic post;
 logic irq_pending;
 
 // IRQ
-metaIntf #(.STYPE(irq_pft_t)) pfault_irq_rd (.*);
+metaIntf #(.STYPE(irq_pft_t)) pfault_irq_rd ();
 logic [LEN_BITS-1:0] pfault_rng_rd;
-metaIntf #(.STYPE(irq_pft_t)) pfault_irq_wr (.*);
+metaIntf #(.STYPE(irq_pft_t)) pfault_irq_wr ();
 logic [LEN_BITS-1:0] pfault_rng_wr;
-metaIntf #(.STYPE(irq_inv_t)) invldt_irq_rd (.*);
-metaIntf #(.STYPE(irq_inv_t)) invldt_irq_wr (.*);
-metaIntf #(.STYPE(irq_not_t)) notify_irq (.*);
+metaIntf #(.STYPE(irq_inv_t)) invldt_irq_rd ();
+metaIntf #(.STYPE(irq_inv_t)) invldt_irq_wr ();
+metaIntf #(.STYPE(irq_not_t)) notify_irq ();
 
-metaIntf #(.STYPE(pf_t)) pfault_rd_ctrl (.*);
-metaIntf #(.STYPE(pf_t)) pfault_wr_ctrl (.*);
-metaIntf #(.STYPE(inv_t)) invldt_rd_ctrl (.*);
-metaIntf #(.STYPE(inv_t)) invldt_wr_ctrl (.*);
+metaIntf #(.STYPE(pf_t)) pfault_rd_ctrl ();
+metaIntf #(.STYPE(pf_t)) pfault_wr_ctrl ();
+metaIntf #(.STYPE(inv_t)) invldt_rd_ctrl ();
+metaIntf #(.STYPE(inv_t)) invldt_wr_ctrl ();
 
 logic [PID_BITS-1:0] pid_C;
 logic [HPID_BITS-1:0] hpid_C;
@@ -193,7 +189,7 @@ logic pwr_C;
 logic [31:0] local_queue_used;
 
 // Completion read
-metaIntf #(.STYPE(ack_t)) meta_done_rd (.*);
+metaIntf #(.STYPE(ack_t)) meta_done_rd ();
 
 logic rd_C;
 logic [3:0] a_we_rd;
@@ -206,7 +202,7 @@ logic rd_clear;
 logic [PID_BITS-1:0] rd_clear_addr;
 
 // Completion write
-metaIntf #(.STYPE(ack_t)) meta_done_wr (.*);
+metaIntf #(.STYPE(ack_t)) meta_done_wr ();
 
 logic wr_C;
 logic [3:0] a_we_wr;
@@ -220,9 +216,9 @@ logic [PID_BITS-1:0] wr_clear_addr;
 
 `ifdef EN_WB
 // Writeback
-metaIntf #(.STYPE(wback_t)) wback [N_WBS] (.*);
-metaIntf #(.STYPE(wback_t)) wback_q [N_WBS] (.*);
-metaIntf #(.STYPE(wback_t)) wback_arb (.*);
+metaIntf #(.STYPE(wback_t)) wback [N_WBS] ();
+metaIntf #(.STYPE(wback_t)) wback_q [N_WBS] ();
+metaIntf #(.STYPE(wback_t)) wback_arb ();
 `endif
 
 `ifdef EN_MEM
@@ -231,17 +227,17 @@ logic offload_post, sync_post;
 logic [31:0] offload_queue_used;
 logic [31:0] sync_queue_used;
 
-metaIntf #(.STYPE(dma_isr_req_t)) offload_req (.*);
-metaIntf #(.STYPE(dma_isr_req_t)) sync_req (.*);
+metaIntf #(.STYPE(dma_isr_req_t)) offload_req ();
+metaIntf #(.STYPE(dma_isr_req_t)) sync_req ();
 logic offload_rsp;
 logic sync_rsp;
 `endif
 
 `ifdef EN_RDMA
 // Completion RDMA
-metaIntf #(.STYPE(ack_t)) rdma_done_rd (.*);
-metaIntf #(.STYPE(ack_t)) rdma_done_wr (.*);
-metaIntf #(.STYPE(ack_t)) rdma_done (.*);
+metaIntf #(.STYPE(ack_t)) rdma_done_rd ();
+metaIntf #(.STYPE(ack_t)) rdma_done_wr ();
+metaIntf #(.STYPE(ack_t)) rdma_done ();
 
 logic rdma_rd_C;
 logic [3:0] a_we_rdma_rd;
@@ -265,8 +261,8 @@ logic [PID_BITS-1:0] rdma_clear_addr_wr;
 `endif
 
 `ifdef EN_TCP
-metaIntf #(.STYPE(tcp_listen_rsp_r_t) open_port_sts (.*);
-metaIntf #(.STYPE(tcp_open_rsp_r_t) open_port_sts (.*);
+metaIntf #(.STYPE(tcp_listen_rsp_r_t) open_port_sts ();
+metaIntf #(.STYPE(tcp_open_rsp_r_t) open_port_sts ();
 
 logic [1:0] open_port_sts_response;
 logic [63:0] open_conn_sts_response;
@@ -378,10 +374,7 @@ localparam integer TCP_OPEN_CONN_STAT_REG                   = 15;
 // 53 (RW): IO Switch
 localparam integer IO_SWITCH_REG                            = 53;
 
-localparam integer MEM_CTRL_BASE_REG = 54;       // Base register for memory endpoint control
-
-// 55 (RW): VLAN control for VIU routing capability
-localparam integer VLAN_CTRL_REG = 55;
+localparam integer EP_CTRL_BASE_REG = 54;        // Base register for EP control
 
 // 64 (RO) : Status DMA completion
 localparam integer STAT_DMA_REG                             = 2**PID_BITS;
@@ -551,7 +544,7 @@ always_ff @(posedge aclk) begin
 
             slv_reg[STAT_REG_1][STAT_PFAULT_OFFS+:32] <=  slv_reg[STAT_REG_1][STAT_PFAULT_OFFS+:32] + 1;
         end
-        else if(notify_irq.valid & ~irq_pending) begin
+        else if(s_notify.valid & ~irq_pending) begin
             irq_pending <= 1'b1;
             notify_irq.ready <= 1'b1;
 
@@ -607,17 +600,14 @@ always_ff @(posedge aclk) begin
                     end
                 end
 
-                ISR_REG: begin // ISR
+                ISR_REG: // ISR
                     for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
                         if(s_axim_ctrl.wstrb[i]) begin
                             slv_reg[ISR_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
                         end
-                    end
 
-                    if (s_axim_ctrl.wstrb[0] == 1'b1) begin
                         invldt_post <= s_axim_ctrl.wdata[ISR_INVLDT];
                     end
-                end
 
 `ifdef EN_WB
                 WBACK_REG: // Writeback
@@ -706,18 +696,11 @@ always_ff @(posedge aclk) begin
                         end
                     end
 
-                MEM_CTRL_BASE_REG:
+                EP_CTRL_BASE_REG:
                     // Write to EP control registers
                     for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
                         if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[MEM_CTRL_BASE_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
-                        end
-                    end
-
-                VLAN_CTRL_REG: // VLAN control for VIU
-                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
-                        if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[VLAN_CTRL_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
+                            slv_reg[EP_CTRL_BASE_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
                         end
                     end
 
@@ -811,11 +794,8 @@ always_ff @(posedge aclk) begin
         [IO_SWITCH_REG:IO_SWITCH_REG]:
             axi_rdata <= slv_reg[IO_SWITCH_REG];
         
-        [MEM_CTRL_BASE_REG:MEM_CTRL_BASE_REG]:
-            axi_rdata <= slv_reg[MEM_CTRL_BASE_REG];
-
-        [VLAN_CTRL_REG:VLAN_CTRL_REG]:
-            axi_rdata <= slv_reg[VLAN_CTRL_REG];
+        [EP_CTRL_BASE_REG:EP_CTRL_BASE_REG]:
+            axi_rdata <= slv_reg[EP_CTRL_BASE_REG];
 
         [STAT_DMA_REG:STAT_DMA_REG+(2**PID_BITS)-1]: begin
             axi_mux <= 1'b1; 
@@ -846,8 +826,8 @@ assign rd_clear_addr = slv_reg[CTRL_REG][CTRL_PID_OFFS+:PID_BITS];
 // Completion muxing
 `ifdef EN_STRM
     `ifdef EN_MEM
-        metaIntf #(.STYPE(ack_t)) host_done_rd (.*);
-        metaIntf #(.STYPE(ack_t)) card_done_rd (.*);
+        metaIntf #(.STYPE(ack_t)) host_done_rd ();
+        metaIntf #(.STYPE(ack_t)) card_done_rd ();
 
         queue_stream #(.QTYPE(ack_t), .QDEPTH(8)) inst_host_cmplt_q_rd (
             .aclk(aclk), 
@@ -909,7 +889,7 @@ assign rd_clear_addr = slv_reg[CTRL_REG][CTRL_PID_OFFS+:PID_BITS];
     `endif
 `endif
 
-assign m_bpss_done_rd.valid = meta_done_rd.valid & meta_done_rd.ready;
+assign m_bpss_done_rd.valid = meta_done_rd.valid;
 assign m_bpss_done_rd.data  = meta_done_rd.data;
 
 always_ff @(posedge aclk) begin
@@ -949,8 +929,8 @@ assign wr_clear_addr = slv_reg[CTRL_REG][WR_OFFS+CTRL_PID_OFFS+:PID_BITS];
 // Completion muxing
 `ifdef EN_STRM
     `ifdef EN_MEM
-        metaIntf #(.STYPE(ack_t)) host_done_wr (.*);
-        metaIntf #(.STYPE(ack_t)) card_done_wr (.*);
+        metaIntf #(.STYPE(ack_t)) host_done_wr ();
+        metaIntf #(.STYPE(ack_t)) card_done_wr ();
 
         queue_stream #(.QTYPE(ack_t), .QDEPTH(8)) inst_host_cmplt_q_wr (
             .aclk(aclk), 
@@ -1012,7 +992,7 @@ assign wr_clear_addr = slv_reg[CTRL_REG][WR_OFFS+CTRL_PID_OFFS+:PID_BITS];
     `endif
 `endif
 
-assign m_bpss_done_wr.valid = meta_done_wr.valid & meta_done_wr.ready;
+assign m_bpss_done_wr.valid = meta_done_wr.valid;
 assign m_bpss_done_wr.data  = meta_done_wr.data;
 
 always_ff @(posedge aclk) begin
@@ -1070,7 +1050,7 @@ assign invldt_rd_ctrl.data.len = slv_reg[ISR_REG][ISR_LEN_OFFS+:LEN_BITS];
 assign invldt_rd_ctrl.data.last = slv_reg[ISR_REG][ISR_INVLDT_LAST];
 
 assign invldt_wr_ctrl.valid = invldt_post;
-assign invldt_wr_ctrl.data.lock = slv_reg[ISR_REG][ISR_INVLDT_LOCK];
+assign invldt_rd_ctrl.data.lock = slv_reg[ISR_REG][ISR_INVLDT_LOCK];
 assign invldt_wr_ctrl.data.hpid = slv_reg[ISR_REG][ISR_HPID_OFFS+:HPID_BITS];
 assign invldt_wr_ctrl.data.vaddr = slv_reg[ISR_REG][ISR_VADDR_OFFS+:VADDR_BITS];
 assign invldt_wr_ctrl.data.len = slv_reg[ISR_REG][ISR_LEN_OFFS+:LEN_BITS];
@@ -1087,14 +1067,14 @@ assign usr_irq = irq_pending;
 
 // IO control
 assign io_ctrl = slv_reg[IO_SWITCH_REG][13:0];
-assign mem_ctrl = slv_reg[MEM_CTRL_BASE_REG][131-1:0];
+assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][131-1:0];
 (* mark_debug = "true" *) logic [OFFS_BITS-1:0] req_1_offs, req_2_offs;
 
 assign req_1_offs = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
 assign req_2_offs = slv_reg[CTRL_REG][WR_OFFS+CTRL_OFFS_OFFS+:OFFS_BITS];
 
 // Host request
-metaIntf #(.STYPE(dreq_t)) host_req (.*);
+metaIntf #(.STYPE(dreq_t)) host_req ();
 
 assign host_req.data.req_1.opcode       = slv_reg[CTRL_REG][CTRL_OPCODE_OFFS+:OPCODE_BITS];
 assign host_req.data.req_1.strm         = slv_reg[CTRL_REG][CTRL_STRM_OFFS+:STRM_BITS];
@@ -1320,8 +1300,8 @@ assign m_open_conn_cmd.data.dest = slv_reg[TCP_OPEN_CONN_REG][48+PID_BITS+:DEST_
 assign m_open_conn_cmd.data.close = slv_reg[TCP_OPEN_CONN_REG][48+PID_BITS+DEST_BITS+:1];
 
 // Open sts
-metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_port_sts (.*);
-metaIntf #(.STYPE(tcp_open_rsp_r_t)) open_conn_sts (.*);
+metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_port_sts ();
+metaIntf #(.STYPE(tcp_open_rsp_r_t)) open_conn_sts ();
 
 queue_meta #(.QDEPTH(16)) inst_open_port_q (.aclk(aclk), .aresetn(aresetn), .s_meta(s_open_port_sts), .m_meta(open_port_sts));
 queue_meta #(.QDEPTH(16)) inst_open_conn_q (.aclk(aclk), .aresetn(aresetn), .s_meta(s_open_conn_sts), .m_meta(open_conn_sts));
@@ -1664,10 +1644,6 @@ begin
     end
 end    
 
-assign mem_ctrl = slv_reg[MEM_CTRL_BASE_REG][(99*N_ENDPOINTS)-1:0];
-
-// VLAN control output for VIU
-assign vlan_ctrl = slv_reg[VLAN_CTRL_REG][13:0];
 
 //
 // DEBUG
