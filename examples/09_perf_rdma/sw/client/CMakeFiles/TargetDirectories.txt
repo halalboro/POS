@@ -1,0 +1,4 @@
+/scratch/anubhav/Coyotev2/Coyote/examples/09_perf_network/sw/client/CMakeFiles/Coyote.dir
+/scratch/anubhav/Coyotev2/Coyote/examples/09_perf_network/sw/client/CMakeFiles/test.dir
+/scratch/anubhav/Coyotev2/Coyote/examples/09_perf_network/sw/client/CMakeFiles/edit_cache.dir
+/scratch/anubhav/Coyotev2/Coyote/examples/09_perf_network/sw/client/CMakeFiles/rebuild_cache.dir

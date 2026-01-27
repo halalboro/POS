@@ -624,6 +624,7 @@ module shell_top (
 {% if cnfg.en_stats %}
     // Net stats
     net_stat_t net_stats;
+    net_stat_t net_stats_modified;
 {% endif %}
 
 {% if cnfg.en_rdma %}
@@ -636,6 +637,7 @@ module shell_top (
 
     // Decopuling
     logic [N_REGIONS-1:0] decouple;
+    logic [N_REGIONS-1:0] rst_pr;
 
 {% if cnfg.en_stats %}    
     // DMA Stats
@@ -658,7 +660,7 @@ module shell_top (
         .m_ddr_offset_addr_rdma(ddr_offset_addr_rdma),
 {% endif %}
 {% if cnfg.en_tcp %}
-        .m_ddr_offset_addr(ddr_offset_addr_tcp),
+        .m_ddr_offset_addr_tcp(ddr_offset_addr_tcp),
 {% endif %}
 {% if cnfg.en_stats %}
   {% if cnfg.en_xch_0 %}
@@ -668,10 +670,11 @@ module shell_top (
         .s_xdma_stats_1(xdma_stats_1),
   {% endif %}
   {% if cnfg.en_net %}
-        .s_net_stats(net_stats),
+        .s_net_stats(net_stats_modified),
   {% endif %}
 {% endif %}
         .m_decouple(decouple),
+        .m_rst_pr(rst_pr),
         .s_axi_ctrl(axi_cnfg)
     );
 
@@ -695,6 +698,18 @@ module shell_top (
     AXI4S axis_rdma_rd_req ();
     AXI4S axis_rdma_rd_rsp ();
     AXI4S axis_rdma_wr ();
+
+    // Debug counter: packets from roce_stack to shell
+    logic [31:0] shell_rdma_wr_counter;
+    always_ff @(posedge nclk) begin
+        if (~nresetn) begin
+            shell_rdma_wr_counter <= '0;
+        end else begin
+            if (axis_rdma_wr.tvalid && axis_rdma_wr.tready && axis_rdma_wr.tlast) begin
+                shell_rdma_wr_counter <= shell_rdma_wr_counter + 1;
+            end
+        end
+    end
 
     // DDR AXI mm rdma
     AXI4 axi_ddr_rdma ();
@@ -803,6 +818,19 @@ module shell_top (
         .nresetn(nresetn)
     );
 
+{% if cnfg.en_stats %}
+    // Override TCP/ICMP counters with our debug counters
+    always_comb begin
+        net_stats_modified = net_stats;
+{% if cnfg.en_rdma %}
+        net_stats_modified.tcp_rx_pkg_counter = shell_rdma_wr_counter;      // Shell: packets from roce_stack to shell
+        net_stats_modified.tcp_tx_pkg_counter = wrapper_sink_counter[0];    // Wrapper: packets arriving at user wrapper
+        net_stats_modified.icmp_rx_pkg_counter = user_recv_counter[0];      // User: packets entering user logic from network
+        net_stats_modified.icmp_tx_pkg_counter = user_send_counter[0];      // User: packets leaving user logic to DMA
+{% endif %}
+    end
+
+{% endif %}
 {% if cnfg.en_stats %}
     vio_shell_nstats inst_vio_shell_nstats (
         .clk(aclk),
@@ -1289,6 +1317,13 @@ module shell_top (
     // DYNAMIC WRAPPER
     // ================-----------------------------------------------------------------
 
+{% if cnfg.en_rdma %}
+    // Debug counters from dynamic/user wrapper
+    logic [31:0] wrapper_sink_counter [{{ cnfg.n_reg }}];
+    logic [31:0] user_recv_counter [{{ cnfg.n_reg }}];
+    logic [31:0] user_send_counter [{{ cnfg.n_reg }}];
+
+{% endif %}
     design_dynamic_top inst_dynamic (
         .s_axi_ctrl(axi_ctrl[0+:{{ cnfg.n_reg }}]),
 {% if cnfg.en_avx %}
@@ -1352,6 +1387,11 @@ module shell_top (
         .s_viu_port_in(viu_port_in),
         .m_viu_route_out(viu_route_out),
         .m_viu_port_out(viu_port_out),
+{% endif %}
+{% if cnfg.en_rdma %}
+        .o_wrapper_sink_counter(wrapper_sink_counter),
+        .o_user_recv_counter(user_recv_counter),
+        .o_user_send_counter(user_send_counter),
 {% endif %}
         .S_BSCAN_drck(m_bscan_drck),
         .S_BSCAN_shift(m_bscan_shift),

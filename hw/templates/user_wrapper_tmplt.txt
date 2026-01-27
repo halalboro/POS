@@ -36,7 +36,9 @@ import lynxTypes::*;
  * User logic wrapper
  * 
  */
-module design_user_wrapper_{{ c_reg }} (
+module design_user_wrapper_{{ c_reg }} #(
+    parameter integer RDMA_BYPASS_MODE = 1 )
+(   
     // AXI4L CONTROL
     (* io_buffer_type = "none" *) input  logic[AXI_ADDR_BITS-1:0]             axi_ctrl_araddr,
     (* io_buffer_type = "none" *) input  logic[2:0]                           axi_ctrl_arprot,
@@ -193,6 +195,13 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) input  logic [1:0]                          port_in,
     (* io_buffer_type = "none" *) output logic [1:0]                          port_out,
 
+{% if cnfg.en_rdma %}
+    // DEBUG COUNTERS
+    (* io_buffer_type = "none" *) output logic [31:0]                         o_wrapper_sink_counter,
+    (* io_buffer_type = "none" *) output logic [31:0]                         o_user_recv_counter,
+    (* io_buffer_type = "none" *) output logic [31:0]                         o_user_send_counter,
+
+{% endif %}
     // Clock and reset
     (* io_buffer_type = "none" *) input  logic                                aclk,
     (* io_buffer_type = "none" *) input  logic[0:0]                           aresetn,
@@ -346,6 +355,20 @@ module design_user_wrapper_{{ c_reg }} (
     AXI4S axis_rdma_sink ();
     AXI4S axis_rdma_sink_int ();
 
+    // Debug counter: packets arriving at user wrapper from shell
+    logic [31:0] wrapper_sink_counter;
+    always_ff @(posedge aclk) begin
+        if (~aresetn) begin
+            wrapper_sink_counter <= '0;
+        end else begin
+            if (axis_rdma_sink_int.tvalid && axis_rdma_sink_int.tready && axis_rdma_sink_int.tlast) begin
+                wrapper_sink_counter <= wrapper_sink_counter + 1;
+            end
+        end
+    end
+
+    assign o_wrapper_sink_counter = wrapper_sink_counter;
+
     assign axis_rdma_sink.tvalid                = axis_rdma_sink_tvalid;
     assign axis_rdma_sink.tdata                 = axis_rdma_sink_tdata;
     assign axis_rdma_sink.tkeep                 = axis_rdma_sink_tkeep;
@@ -389,7 +412,7 @@ module design_user_wrapper_{{ c_reg }} (
     assign axis_tcp_src_tkeep                   = axis_tcp_src.tkeep;
     assign axis_tcp_src_tlast                   = axis_tcp_src.tlast;
     assign axis_tcp_src.tready                  = axis_tcp_src_tready;
-    
+
 {% endif %}
 
 {% if cnfg.en_user_reg %}
@@ -401,29 +424,29 @@ module design_user_wrapper_{{ c_reg }} (
     axil_reg inst_reg_ctrl (.aclk(aclk), .aresetn(aresetn), .s_axi(axi_ctrl_user), .m_axi(axi_ctrl_user_int));
 
     // Notify
-    meta_reg #(.DATA_BITS($bits(irq_not_t)) inst_reg_not (.aclk(aclk), .aresetn(aresetn), .s_meta(notify_int), .m_meta(notify));
+    meta_reg #(.DATA_BITS($bits(irq_not_t))) inst_reg_not (.aclk(aclk), .aresetn(aresetn), .s_meta(notify_int), .m_meta(notify));
 
     // Host request
     meta_reg #(.DATA_BITS($bits(dreq_t))) inst_reg_host (.aclk(aclk), .aresetn(aresetn), .s_meta(host_sq), .m_meta(host_sq_int));
 
     // Bypass
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_bpss_rd (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_rd_req_int), .m_meta(bpss_rd_req));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_bpss_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_wr_req_int), .m_meta(bpss_wr_req));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_cq_bpss_rd  (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_rd_cq), .m_meta(bpss_rd_cq_int));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_cq_bpss_rd  (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_wr_cq), .m_meta(bpss_wr_cq_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_bpss_rd (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_rd_req_int), .m_meta(bpss_rd_req));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_bpss_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_wr_req_int), .m_meta(bpss_wr_req));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_cq_bpss_rd  (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_rd_cq), .m_meta(bpss_rd_cq_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_cq_bpss_wr  (.aclk(aclk), .aresetn(aresetn), .s_meta(bpss_wr_cq), .m_meta(bpss_wr_cq_int));
 
 {% if cnfg.en_rdma %}
     // RDMA desc
-    meta_reg #(.DATA_BITS($bits(dreq_t)) inst_reg_rdma_sq (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_sq_int), .m_meta(rdma_sq));
-    meta_reg #(.DATA_BITS($bits(ack_t)) inst_reg_rdma_cq (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_cq), .m_meta(rdma_cq_int));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_rdma_rq_rd (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_rq_rd), .m_meta(rdma_rq_rd_int));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_rdma_rq_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_rq_wr), .m_meta(rdma_rq_wr_int));
+    meta_reg #(.DATA_BITS($bits(dreq_t))) inst_reg_rdma_sq (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_sq_int), .m_meta(rdma_sq));
+    meta_reg #(.DATA_BITS($bits(ack_t))) inst_reg_rdma_cq (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_cq), .m_meta(rdma_cq_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_rdma_rq_rd (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_rq_rd), .m_meta(rdma_rq_rd_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_rdma_rq_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_rq_wr), .m_meta(rdma_rq_wr_int));
 
 {% endif %}
 {% if cnfg.en_tcp %}
     // TCP desc
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_tcp_sq (.aclk(aclk), .aresetn(aresetn), .s_meta(tcp_sq_int), .m_meta(tcp_sq));
-    meta_reg #(.DATA_BITS($bits(req_t)) inst_reg_tcp_rq (.aclk(aclk), .aresetn(aresetn), .s_meta(tcp_rq), .m_meta(tcp_rq_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_tcp_sq (.aclk(aclk), .aresetn(aresetn), .s_meta(tcp_sq_int), .m_meta(tcp_sq));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_tcp_rq (.aclk(aclk), .aresetn(aresetn), .s_meta(tcp_rq), .m_meta(tcp_rq_int));
 
 {% endif %}
 {% if cnfg.en_strm %}
@@ -535,6 +558,356 @@ module design_user_wrapper_{{ c_reg }} (
     AXI4SR axis_card_send_int [N_CARD_AXI] ();
     AXI4SR axis_card_recv_int [N_CARD_AXI] (); 
 
+    req_mux_stream_1_2 inst_stream_mux_wr (
+        .s_req(local_sq_wr),
+        .m_req_0(local_sq_wr_host),
+        .m_req_1(local_sq_wr_card),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+    local_credits_host_rd #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_local_credits_host_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_rd_host),
+        .m_req(local_cred_rd_host),
+        .s_axis(axis_host_sink_int),
+        .m_axis(axis_host_recv_int)
+    );
+
+    local_credits_host_wr #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_local_credits_host_wr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_wr_host),
+        .m_req(local_cred_wr_host),
+        .s_axis(axis_host_send_int),
+        .m_axis(axis_host_src_int)
+    );
+
+    local_credits_card_rd #(
+        .N_DESTS(N_CARD_AXI)
+    ) inst_local_credits_card_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_rd_card),
+        .m_req(local_cred_rd_card),
+        .s_axis(axis_card_sink_int),
+        .m_axis(axis_card_recv_int)
+    );
+
+    local_credits_card_wr #(
+        .N_DESTS(N_CARD_AXI)  
+    ) inst_local_credits_card_wr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_wr_card),
+        .m_req(local_cred_wr_card),
+        .s_axis(axis_card_send_int),
+        .m_axis(axis_card_src_int)
+    );
+
+    req_arb_2_1 inst_stream_arb_rd (
+        .s_req_0(local_cred_rd_host),
+        .s_req_1(local_cred_rd_card),
+        .m_req(bpss_rd_req_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+    req_arb_2_1 inst_stream_arb_wr (
+        .s_req_0(local_cred_wr_host),
+        .s_req_1(local_cred_wr_card),
+        .m_req(bpss_wr_req_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+{% elif cnfg.en_strm %}
+    `META_ASSIGN(local_sq_rd, local_sq_rd_host)
+    `META_ASSIGN(local_sq_wr, local_sq_wr_host)
+
+    local_credits_host_rd #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_local_credits_host_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_rd_host),
+        .m_req(local_cred_rd_host),
+        .s_axis(axis_host_sink_int),
+        .m_axis(axis_host_recv_int)
+    );
+
+    local_credits_host_wr #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_local_credits_host_wr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_wr_host),
+        .m_req(local_cred_wr_host),
+        .s_axis(axis_host_send_int),
+        .m_axis(axis_host_src_int)
+    );
+
+    `META_ASSIGN(local_cred_rd_host, bpss_rd_req_int)
+    `META_ASSIGN(local_cred_wr_host, bpss_wr_req_int)
+
+{% elif cnfg.en_mem %}
+    `META_ASSIGN(local_sq_rd, local_sq_rd_card)
+    `META_ASSIGN(local_sq_wr, local_sq_wr_card)
+
+    local_credits_card_rd #(
+        .N_DESTS(N_CARD_AXI)
+    ) inst_local_credits_card_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_rd_card),
+        .m_req(local_cred_rd_card),
+        .s_axis(axis_card_sink_int),
+        .m_axis(axis_card_recv_int)
+    );
+
+    local_credits_card_wr #(
+        .N_DESTS(N_CARD_AXI)
+    ) inst_local_credits_card_wr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(local_sq_wr_card),
+        .m_req(local_cred_wr_card),
+        .s_axis(axis_card_send_int),
+        .m_axis(axis_card_src_int)
+    );
+
+    `META_ASSIGN(local_cred_rd_card, bpss_rd_req_int)
+    `META_ASSIGN(local_cred_wr_card, bpss_wr_req_int)
+
+{% endif %}
+
+    //
+    // Remote credits
+    // 
+
+{% if cnfg.en_net %}
+    metaIntf #(.STYPE(req_t)) user_rq_wr_int ();
+
+{% if cnfg.en_rdma %}
+    metaIntf #(.STYPE(req_t)) user_rq_rd_int ();
+
+    metaIntf #(.STYPE(dreq_t)) remote_sq_wr_rdma ();
+    metaIntf #(.STYPE(dreq_t)) remote_cred_rd_rdma ();
+    metaIntf #(.STYPE(dreq_t)) remote_cred_wr_rdma ();
+
+    metaIntf #(.STYPE(req_t)) rdma_rq_wr_cred_int ();
+
+    AXI4SR axis_rdma_recv_int [N_RDMA_AXI] ();
+    AXI4SR axis_rdma_resp_int [N_RDMA_AXI] ();
+    AXI4SR axis_rdma_send_req_int [N_RDMA_AXI] ();
+    AXI4SR axis_rdma_send_rsp_int [N_RDMA_AXI] ();
+
+{% endif %}
+{% if cnfg.en_tcp %}
+    metaIntf #(.STYPE(req_t)) remote_sq_wr_tcp ();
+    metaIntf #(.STYPE(req_t)) remote_sq_cmd_tcp ();
+    metaIntf #(.STYPE(req_t)) remote_cred_wr_tcp ();
+
+    metaIntf #(.STYPE(req_t)) tcp_rq_wr_int ();
+    
+{% endif %}
+{% if cnfg.en_tcp and cnfg.en_rdma %}
+    dreq_mux_net_1_2 inst_dreq_mux (
+        .s_req(remote_sq_wr),
+        .m_req_0(remote_sq_wr_rdma),
+        .m_req_2(remote_sq_wr_tcp),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+    remote_credits_rd #(
+        .N_DESTS(N_RDMA_AXI)  
+    ) inst_remote_credits_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(remote_sq_rd),
+        .m_req(remote_cred_rd_rdma),
+        .s_rq(rdma_rq_wr_int),
+        .m_rq(rdma_rq_wr_cred_int),
+        .s_axis(axis_rdma_sink_int),
+        .m_axis_recv(axis_rdma_recv_int),
+        .m_axis_resp(axis_rdma_resp_int)
+    );
+
+    remote_credits_wr_rdma #(
+        .N_DESTS(N_RDMA_AXI)  
+    ) inst_remote_credits_wr_rdma (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(remote_sq_wr_rdma),
+        .m_req(remote_cred_wr_rdma),
+        .s_axis(axis_rdma_send_req_int),
+        .m_axis(axis_rdma_src_req_int)
+    );
+
+    remote_resp_rd #(
+        .N_DESTS(N_RDMA_AXI)
+    ) inst_remote_resp_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_rq(rdma_rq_rd),
+        .m_rq(user_rq_rd_int),
+        .s_axis(axis_rdma_send_rsp_int),
+        .m_axis(axis_rdma_src_rsp_int)
+    );
+
+    dreq_arb_2_1 inst_dreq_arb_rdma (
+        .s_req_0(remote_cred_rd_rdma),
+        .s_req_1(remote_cred_wr_rdma),
+        .m_req(rdma_sq_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+    remote_credits_wr_tcp #(
+        .N_DESTS(N_TCP_AXI)  
+    ) inst_remote_credits_wr_tcp (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(remote_sq_wr_tcp),
+        .m_req(tcp_sq_int),
+        .s_axis(axis_tcp_send_int),
+        .m_axis(axis_tcp_src_int)
+    );
+
+    axis_mux_user_tcp inst_axis_tcp_mux (
+        .s_rq(tcp_rq_int),
+        .m_rq(tcp_rq_wr_int)
+        .s_axis(axis_tcp_sink_int),
+        .m_axis(axis_tcp_recv_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+    req_arb_2_1 inst_rq_arbiter (
+        .s_req_0(rdma_rq_wr_cred_int),
+        .s_req_1(tcp_rq_wr_int),
+        .m_req(user_rq_wr_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+
+{% elif cnfg.en_rdma %}    
+generate
+if (RDMA_BYPASS_MODE == 1) begin : gen_bypass_wrapper
+    
+    // ===== BROADCAST CHANNEL 0 (axis_rreq_send) =====
+    assign axis_rdma_src_req_int.tvalid = axis_rdma_send_req_int[0].tvalid;
+    assign axis_rdma_src_req_int.tdata  = axis_rdma_send_req_int[0].tdata;
+    assign axis_rdma_src_req_int.tkeep  = axis_rdma_send_req_int[0].tkeep;
+    assign axis_rdma_src_req_int.tlast  = axis_rdma_send_req_int[0].tlast;
+    
+    assign axis_rdma_src_rsp_int.tvalid = axis_rdma_send_req_int[0].tvalid;
+    assign axis_rdma_src_rsp_int.tdata  = axis_rdma_send_req_int[0].tdata;
+    assign axis_rdma_src_rsp_int.tkeep  = axis_rdma_send_req_int[0].tkeep;
+    assign axis_rdma_src_rsp_int.tlast  = axis_rdma_send_req_int[0].tlast;
+    
+    assign axis_rdma_send_req_int[0].tready = axis_rdma_src_req_int.tready | axis_rdma_src_rsp_int.tready;
+    
+    // ===== BROADCAST CHANNEL 1 (axis_rrsp_send) =====
+    // This channel also needs routing if you ever use READ operations
+    // For now, just tie it off since you're only testing WRITE
+    assign axis_rdma_send_rsp_int[0].tready = 1'b1;
+    
+    // Tie off other channels
+    for (genvar i = 1; i < N_RDMA_AXI; i++) begin
+        assign axis_rdma_send_req_int[i].tready = 1'b1;
+        assign axis_rdma_send_rsp_int[i].tready = 1'b1;
+    end
+    
+    // ===== RX PATH =====
+    assign axis_rdma_recv_int[1].tvalid = axis_rdma_sink_int.tvalid;
+    assign axis_rdma_recv_int[1].tdata  = axis_rdma_sink_int.tdata;
+    assign axis_rdma_recv_int[1].tkeep  = axis_rdma_sink_int.tkeep;
+    assign axis_rdma_recv_int[1].tlast  = axis_rdma_sink_int.tlast;
+    assign axis_rdma_recv_int[1].tid    = '0;
+    assign axis_rdma_sink_int.tready    = axis_rdma_recv_int[1].tready;
+    
+    assign axis_rdma_recv_int[0].tvalid = 1'b0;
+    
+    // ===== DESCRIPTORS =====
+    `META_ASSIGN(remote_sq_wr, rdma_sq_int)
+    assign remote_sq_rd.ready = 1'b1;
+    `META_ASSIGN(rdma_rq_wr_int, user_rq_wr_int)
+    assign rdma_rq_rd_int.ready = 1'b1;
+    assign user_rq_rd_int.valid = 1'b0;
+    
+end else begin : gen_full_rdma_wrapper
+    
+    `META_ASSIGN(remote_sq_wr, remote_sq_wr_rdma)
+    
+    remote_credits_rd #(.N_DESTS(N_RDMA_AXI)) inst_remote_credits_rd (
+        .aclk(aclk), .aresetn(aresetn),
+        .s_req(remote_sq_rd), .m_req(remote_cred_rd_rdma),
+        .s_rq(rdma_rq_wr_int), .m_rq(rdma_rq_wr_cred_int),
+        .s_axis(axis_rdma_sink_int),
+        .m_axis_recv(axis_rdma_recv_int),
+        .m_axis_resp(axis_rdma_resp_int)
+    );
+    
+    remote_credits_wr_rdma #(.N_DESTS(N_RDMA_AXI)) inst_remote_credits_wr_rdma (
+        .aclk(aclk), .aresetn(aresetn),
+        .s_req(remote_sq_wr_rdma), .m_req(remote_cred_wr_rdma),
+        .s_axis(axis_rdma_send_req_int),
+        .m_axis(axis_rdma_src_req_int)
+    );
+    
+    remote_resp_rd #(.N_DESTS(N_RDMA_AXI)) inst_remote_resp_rd (
+        .aclk(aclk), .aresetn(aresetn),
+        .s_rq(rdma_rq_rd_int), .m_rq(user_rq_rd_int),
+        .s_axis(axis_rdma_send_rsp_int),
+        .m_axis(axis_rdma_src_rsp_int)
+    );
+    
+    dreq_arb_2_1 inst_dreq_arb_rdma (
+        .s_req_0(remote_cred_rd_rdma),
+        .s_req_1(remote_cred_wr_rdma),
+        .m_req(rdma_sq_int),
+        .aclk(aclk), .aresetn(aresetn)
+    );
+    
+    `META_ASSIGN(rdma_rq_wr_cred_int, user_rq_wr_int)
+    
+end
+endgenerate
+
+{% elif cnfg.en_tcp %}
+    `META_ASSIGN(remote_sq_wr, remote_sq_wr_tcp)
+    assign remote_sq_rd.ready = 1'b1;
+
+    remote_credits_wr_tcp #(
+        .N_DESTS(N_TCP_AXI)  
+    ) inst_remote_credits_wr_tcp (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(remote_sq_wr_tcp),
+        .m_req(tcp_sq_int),
+        .s_axis(axis_tcp_send_int),
+        .m_axis(axis_tcp_src_int)
+    );
+
+    axis_mux_user_tcp inst_axis_tcp_mux (
+        .s_rq(tcp_rq_int),
+        .m_rq(tcp_rq_wr_int)
+        .s_axis(axis_tcp_sink_int),
+        .m_axis(axis_tcp_recv_int),
+        .aclk(aclk),
+        .aresetn(aresetn)
+    );
+    `META_ASSIGN(tcp_rq_wr_int, user_rq_wr_int)
+
+{% endif %}
+{% endif %}
 
     //
     // CQ
@@ -544,17 +917,37 @@ module design_user_wrapper_{{ c_reg }} (
     metaIntf #(.STYPE(ack_t)) user_cq_wr_int ();
 
 {% if cnfg.en_rdma %}
+generate
+if (RDMA_BYPASS_MODE == 1) begin : gen_bypass_cq
+    
+    // In bypass mode: DMA write completions go directly to user
+    `META_ASSIGN(bpss_wr_cq_int, user_cq_wr_int)
+    
+    // Read completions unused in current bypass
+    assign user_cq_rd_int.valid = 1'b0;
+    assign user_cq_rd_int.data  = '0;
+    assign bpss_rd_cq_int.ready = 1'b1;
+    
+    // RDMA CQ unused in bypass (no RoCE protocol completions)
+    assign rdma_cq_int.ready = 1'b1;
+    
+end else begin : gen_full_cq
+    
     cq_arb inst_cq_arbiter (
-        .s_cq_bpss_rd(bpss_rd_cq),
-        .s_cq_bpss_wr(bpss_wr_cq),
-        .s_cq_rdma(rdma_cq),
+        .s_cq_bpss_rd(bpss_rd_cq_int),
+        .s_cq_bpss_wr(bpss_wr_cq_int),
+        .s_cq_rdma(rdma_cq_int),
         .m_cq_rd(user_cq_rd_int),
         .m_cq_wr(user_cq_wr_int),
-        .aclk(aclk),                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+        .aclk(aclk),
         .aresetn(aresetn)
     );
+    
+end
+endgenerate
 
 {% else %}
+    // No RDMA: Direct bypass CQ assignment
     `META_ASSIGN(bpss_rd_cq, user_cq_rd_int)
     `META_ASSIGN(bpss_wr_cq, user_cq_wr_int)
 
@@ -618,6 +1011,10 @@ module design_user_wrapper_{{ c_reg }} (
     {% if cnfg.en_tcp %}
         .axis_tcp_recv(axis_tcp_recv_int),
         .axis_tcp_send(axis_tcp_send_int),
+    {% endif %}
+    {% if cnfg.en_rdma %}
+        .o_user_recv_counter(o_user_recv_counter),
+        .o_user_send_counter(o_user_send_counter),
     {% endif %}
         .aclk(aclk),
 	    .aresetn(aresetn)

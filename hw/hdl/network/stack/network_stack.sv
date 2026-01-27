@@ -272,7 +272,17 @@ begin
             arp_ip_address <= local_ip_address;
             toe_ip_address <= local_ip_address;
             ip_subnet_mask <= IP_SUBNET_MASK;
-            ip_default_gateway <= {local_ip_address[31:28], 8'h01, local_ip_address[23:0]};
+            // For same-subnet peer-to-peer (bypass mode), compute peer IP
+            // If local is x.x.x.1, peer is x.x.x.2 and vice versa
+            // This ensures ARP resolves to the actual peer, not a non-existent gateway
+            // NOTE: Due to byte-swap in local_ip_address assignment, the last octet
+            // (e.g., .1 or .2 in 10.0.0.x) is stored in bits [31:24], not [7:0]
+            if (local_ip_address[31:24] == 8'h01)
+                ip_default_gateway <= {8'h02, local_ip_address[23:0]};  // .1 -> .2
+            else if (local_ip_address[31:24] == 8'h02)
+                ip_default_gateway <= {8'h01, local_ip_address[23:0]};  // .2 -> .1
+            else
+                ip_default_gateway <= {8'h01, local_ip_address[23:0]};  // default to .1
         end
     end
 end
@@ -815,7 +825,9 @@ arp_server_subnet_ip arp_server_inst(
  * RoCE stack
  */
 
-roce_stack inst_roce_stack (
+roce_stack #(
+    .BYPASS_MODE(1)
+) inst_roce_stack (
     .nclk(nclk), // input aclk
     .nresetn(nresetn_r), // input aresetn
 
@@ -861,7 +873,7 @@ roce_stack inst_roce_stack (
     .retrans_count_data(regRetransCount)
 );
 
-/*
+
 ila_roce inst_ila_roce (
     .clk(nclk),
     .probe0(axis_roce_slice_to_roce.tvalid),
@@ -897,11 +909,6 @@ ila_roce inst_ila_roce (
     .probe27(m_axis_net.tdata), // 512
     .probe28(m_axis_net.tlast)
 );
-*/
-/*
-create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_roce
-set_property -dict [list CONFIG.C_PROBE27_WIDTH {512} CONFIG.C_PROBE23_WIDTH {512} CONFIG.C_PROBE20_WIDTH {512} CONFIG.C_PROBE19_WIDTH {512} CONFIG.C_PROBE17_WIDTH {512} CONFIG.C_PROBE14_WIDTH {256} CONFIG.C_PROBE11_WIDTH {96} CONFIG.C_PROBE8_WIDTH {96} CONFIG.C_DATA_DEPTH {2048} CONFIG.C_NUM_OF_PROBES {29} CONFIG.Component_Name {ila_roce} CONFIG.C_EN_STRG_QUAL {1} CONFIG.C_PROBE28_MU_CNT {2} CONFIG.C_PROBE27_MU_CNT {2} CONFIG.C_PROBE26_MU_CNT {2} CONFIG.C_PROBE25_MU_CNT {2} CONFIG.C_PROBE24_MU_CNT {2} CONFIG.C_PROBE23_MU_CNT {2} CONFIG.C_PROBE22_MU_CNT {2} CONFIG.C_PROBE21_MU_CNT {2} CONFIG.C_PROBE20_MU_CNT {2} CONFIG.C_PROBE19_MU_CNT {2} CONFIG.C_PROBE18_MU_CNT {2} CONFIG.C_PROBE17_MU_CNT {2} CONFIG.C_PROBE16_MU_CNT {2} CONFIG.C_PROBE15_MU_CNT {2} CONFIG.C_PROBE14_MU_CNT {2} CONFIG.C_PROBE13_MU_CNT {2} CONFIG.C_PROBE12_MU_CNT {2} CONFIG.C_PROBE11_MU_CNT {2} CONFIG.C_PROBE10_MU_CNT {2} CONFIG.C_PROBE9_MU_CNT {2} CONFIG.C_PROBE8_MU_CNT {2} CONFIG.C_PROBE7_MU_CNT {2} CONFIG.C_PROBE6_MU_CNT {2} CONFIG.C_PROBE5_MU_CNT {2} CONFIG.C_PROBE4_MU_CNT {2} CONFIG.C_PROBE3_MU_CNT {2} CONFIG.C_PROBE2_MU_CNT {2} CONFIG.C_PROBE1_MU_CNT {2} CONFIG.C_PROBE0_MU_CNT {2} CONFIG.ALL_PROBE_SAME_MU_CNT {2}] [get_ips ila_roce]
-*/
 
 `endif
 

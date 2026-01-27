@@ -1,0 +1,1 @@
+/nix/store/7wkshj58fcsl1f3zyi67qsxgl1p8nki1-gcc-wrapper-12.2.0/bin/g++  -pthread -march=native -O3 -mavx CMakeFiles/test.dir/src/client/main.cpp.o -o bin/test   -L/usr/local/lib  -Wl,-rpath,/usr/local/lib:/scratch/anubhav/Coyotev2/Coyote/examples/09_perf_network/sw/client libCoyote.so /nix/store/yfpamwbbf160q72wjv9l1jxcc6h4cmdd-boost-1.79.0/lib/libboost_program_options.so.1.79.0 

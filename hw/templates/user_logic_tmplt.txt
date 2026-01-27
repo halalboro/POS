@@ -89,6 +89,12 @@ module design_user_logic_c{{ c_cnfg }}_{{ c_reg }} (
     metaIntf.m                  filter_config,
 {% endif %}
 
+{% if cnfg.en_rdma %}
+    // DEBUG COUNTERS
+    output logic [31:0]         o_user_recv_counter,
+    output logic [31:0]         o_user_send_counter,
+
+{% endif %}
     // Clock and reset
     input  wire                 aclk,
     input  wire[0:0]            aresetn

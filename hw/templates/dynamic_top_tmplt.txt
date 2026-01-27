@@ -109,6 +109,13 @@ module design_dynamic_top #(
     // IRQ
     output logic[N_REGIONS-1:0]                 m_usr_irq,
 
+{% if cnfg.en_rdma %}
+    // Debug counters
+    output logic [31:0]                         o_wrapper_sink_counter [N_REGIONS],
+    output logic [31:0]                         o_user_recv_counter [N_REGIONS],
+    output logic [31:0]                         o_user_send_counter [N_REGIONS],
+
+{% endif %}
     // Debug
     input  logic [N_REGIONS-1:0]                S_BSCAN_drck,
     input  logic [N_REGIONS-1:0]                S_BSCAN_shift,
@@ -130,9 +137,18 @@ module design_dynamic_top #(
     input  logic                                uresetn,
     input  logic                                uclk
 );
-	
+
+{% if cnfg.en_rdma %}
     // ================-----------------------------------------------------------------
-    // DECOUPLING 
+    // DEBUG COUNTERS FROM USER WRAPPER
+    // ================-----------------------------------------------------------------
+    logic [31:0] wrapper_sink_counter [N_REGIONS];
+    logic [31:0] user_recv_counter [N_REGIONS];
+    logic [31:0] user_send_counter [N_REGIONS];
+
+{% endif %}
+    // ================-----------------------------------------------------------------
+    // DECOUPLING
     // ================-----------------------------------------------------------------
 
     // Decoupling signals
@@ -629,7 +645,7 @@ module design_dynamic_top #(
     metaIntf #(.STYPE(tcp_listen_rsp_t)) open_port_sts();
     metaIntf #(.STYPE(tcp_listen_req_r_t)) open_conn_cmd();
     metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_conn_sts();
-    
+
     metaIntf #(.STYPE(tcp_listen_req_r_t)) open_port_cmd_s0();
     metaIntf #(.STYPE(tcp_listen_rsp_t)) open_port_sts_s0();
     metaIntf #(.STYPE(tcp_listen_req_r_t)) open_conn_cmd_s0();
@@ -1195,10 +1211,10 @@ module design_dynamic_top #(
         .tcp_sq_data                    (tcp_sq_ul[{{ i }}].data),
         .tcp_rq_valid                   (tcp_rq_ul[{{ i }}].valid),
         .tcp_rq_ready                   (tcp_rq_ul[{{ i }}].ready),
-        .tcp_rq_data                    (tcp_rq_ul[{{ i }}].data), 
+        .tcp_rq_data                    (tcp_rq_ul[{{ i }}].data),
         .tcp_cq_valid                   (tcp_cq_ul[{{ i }}].valid),
         .tcp_cq_ready                   (tcp_cq_ul[{{ i }}].ready),
-        .tcp_cq_data                    (tcp_cq_ul[{{ i }}].data), 
+        .tcp_cq_data                    (tcp_cq_ul[{{ i }}].data),
 
         .axis_tcp_sink_tdata            (axis_tcp_in_ul[{{ i }}].tdata),
         .axis_tcp_sink_tkeep            (axis_tcp_in_ul[{{ i }}].tkeep),
@@ -1225,6 +1241,11 @@ module design_dynamic_top #(
         .S_BSCAN_bscanid_en(S_BSCAN_bscanid_en[{{ i }}]),
         .port_in(port_dtu_out[{{ i }}]),
         .port_out(port_dtu_in[{{ i }}]),
+{% if cnfg.en_rdma %}
+        .o_wrapper_sink_counter (wrapper_sink_counter[{{ i }}]),
+        .o_user_recv_counter    (user_recv_counter[{{ i }}]),
+        .o_user_send_counter    (user_send_counter[{{ i }}]),
+{% endif %}
 {% if cnfg.en_uclk %}
         .aclk                   (uclk),
         .aresetn                (uresetn)
@@ -1236,6 +1257,15 @@ module design_dynamic_top #(
     );
 
 {% endfor %}
-	
+
+{% if cnfg.en_rdma %}
+    // Assign counter outputs
+    for(genvar i = 0; i < N_REGIONS; i++) begin
+        assign o_wrapper_sink_counter[i] = wrapper_sink_counter[i];
+        assign o_user_recv_counter[i] = user_recv_counter[i];
+        assign o_user_send_counter[i] = user_send_counter[i];
+    end
+{% endif %}
+
 endmodule
 	

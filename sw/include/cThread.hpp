@@ -230,6 +230,8 @@ protected:
         }
     }
 
+	const ibvQp* getQpair() const { return qpair.get(); }
+
 };
 
 } /* namespace fpga */
