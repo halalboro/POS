@@ -37,7 +37,7 @@ import lynxTypes::*;
  * 
  */
 module design_user_wrapper_{{ c_reg }} #(
-    parameter integer RDMA_BYPASS_MODE = 1 )
+    parameter integer RDMA_BYPASS_MODE = 0 )
 (   
     // AXI4L CONTROL
     (* io_buffer_type = "none" *) input  logic[AXI_ADDR_BITS-1:0]             axi_ctrl_araddr,

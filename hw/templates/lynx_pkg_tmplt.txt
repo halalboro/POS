@@ -289,7 +289,7 @@ package lynxTypes;
     parameter integer RDMA_MODE_RAW = 1;
     parameter integer RDMA_WR_NET_THRS = 256; // beats
     parameter integer RDMA_MEM_SHIFT = 27;
-    parameter integer RDMA_BYPASS_MODE = 1; // 0=Full RoCE, 1=Raw Ethernet passthrough
+    parameter integer RDMA_BYPASS_MODE = 0; // 0=Full RoCE, 1=Raw Ethernet passthrough
 
     // Network TCP/IP
     parameter integer N_TCP_CHANNELS = 2;

@@ -826,7 +826,7 @@ arp_server_subnet_ip arp_server_inst(
  */
 
 roce_stack #(
-    .BYPASS_MODE(1)
+    .BYPASS_MODE(0)
 ) inst_roce_stack (
     .nclk(nclk), // input aclk
     .nresetn(nresetn_r), // input aresetn
