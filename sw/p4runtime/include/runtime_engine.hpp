@@ -310,7 +310,7 @@ struct P4InfoMetadata {
  */
 class POSRuntimeEngine {
 private:
-    fpga::cThread* cthread;  // Note: POS uses fpga namespace
+    coyote::cThread* cthread;  // Note: POS uses fpga namespace
     P4InfoMetadata p4info;
     uint32_t next_entry_idx;
     int debug_level;
@@ -348,10 +348,10 @@ private:
 public:
     /**
      * Constructor
-     * @param thread - FPGA thread for hardware communication (fpga::cThread)
+     * @param thread - FPGA thread for hardware communication (coyote::cThread)
      * @param debug - Debug level (0=off, 1=info, 2=verbose)
      */
-    POSRuntimeEngine(fpga::cThread* thread, int debug = 1);
+    POSRuntimeEngine(coyote::cThread* thread, int debug = 1);
     ~POSRuntimeEngine();
 
     // Non-copyable

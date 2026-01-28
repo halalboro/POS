@@ -102,7 +102,7 @@
 
 namespace dfg {
 
-using namespace fpga;
+using namespace coyote;
 
 // Forward declarations
 class DFG;

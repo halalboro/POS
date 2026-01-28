@@ -283,7 +283,7 @@ const std::string POSRuntimeEngine::ANONYMOUS_CLIENT_ID = "anonymous";
 // POSRuntimeEngine - Constructor / Destructor
 // ============================================================================
 
-POSRuntimeEngine::POSRuntimeEngine(fpga::cThread* thread, int debug)
+POSRuntimeEngine::POSRuntimeEngine(coyote::cThread* thread, int debug)
     : cthread(thread), next_entry_idx(0), debug_level(debug),
       acl_(std::make_unique<TableAccessController>()) {
 
@@ -478,7 +478,7 @@ void POSRuntimeEngine::programRouteEntry(
     log(2, "Programming hardware entry " + std::to_string(entry_idx));
 
     // Use RouterRegs from cDefs.hpp (fpga namespace for POS)
-    using fpga::RouterRegs;
+    using coyote::RouterRegs;
 
     // Write table address
     cthread->setCSR(entry_idx, static_cast<uint32_t>(RouterRegs::ADDR_REG));
@@ -915,7 +915,7 @@ bool POSRuntimeEngine::verifyHardware() const {
 
     try {
         // Try to read status register
-        using fpga::RouterRegs;
+        using coyote::RouterRegs;
         uint32_t status = cthread->getCSR(static_cast<uint32_t>(RouterRegs::STATUS_REG));
         log(1, "Hardware verification: status = 0x" +
             std::to_string(status) + " (PASS)");

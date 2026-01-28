@@ -79,7 +79,7 @@
 
 namespace pos {
 
-using namespace fpga;
+using namespace coyote;
 
 // ============================================================================
 // Protocol Enum - All supported I/O protocols
