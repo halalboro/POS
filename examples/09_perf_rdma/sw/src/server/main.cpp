@@ -4,98 +4,78 @@
  * MIT Licence
  * Copyright (c) 2021-2025, Systems Group, ETH Zurich
  * All rights reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #include <iostream>
 #include <cstdlib>
-#include <fstream>
-#include <chrono>
-#include <iomanip>
 
+// External library for easier parsing of CLI arguments by the executable
 #include <boost/program_options.hpp>
 
-#include "cThread.hpp"
-#include "constants.hpp"
+// Coyote-specific includes
+#include <coyote/cThread.hpp>
+#include <constants.hpp>
 
 constexpr bool const IS_CLIENT = false;
 
-// Read RoCE RX packet counter from sysfs
-uint32_t read_roce_rx_counter() {
-    std::ifstream f("/sys/kernel/coyote_sysfs_0/cyt_attr_nstats");
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.find("ROCE RX pkgs") != std::string::npos) {
-            size_t pos = line.find(':');
-            if (pos != std::string::npos) {
-                return std::stoul(line.substr(pos + 1));
-            }
-        }
-    }
-    return 0;
-}
-
-double run_bench(
-    coyote::cThread &coyote_thread, coyote::rdmaSg &sg,
+// Note, how the Coyote thread is passed by reference; to avoid creating a copy of 
+// the thread object which can lead to undefined behaviour and bugs. 
+void run_bench(
+    coyote::cThread &coyote_thread, coyote::rdmaSg &sg, 
     int *mem, uint transfers, uint n_runs, bool operation
 ) {
-    constexpr size_t HW_BUFFER_SIZE = 4 * 1024 * 1024;  // Must match main()
-    size_t total_bytes = sg.len * transfers;
-    size_t total_ints = total_bytes / sizeof(int);
-
-    // Only clear up to buffer size to avoid overflow
-    size_t clear_bytes = (total_bytes > HW_BUFFER_SIZE) ? HW_BUFFER_SIZE : total_bytes;
-    memset(mem, 0, clear_bytes);
-
-    coyote_thread.clearCompleted();
-
-    // Expected number of packets (one packet per invoke on client)
-    uint64_t expected_packets = (uint64_t)transfers * n_runs;
-
-    // Read RX counter before sync
-    uint32_t rx_start = read_roce_rx_counter();
-
-    coyote_thread.connSync(IS_CLIENT);  // Sync - tells client we're ready
-
-    // Start timing when client starts sending
-    auto start = std::chrono::high_resolution_clock::now();
-
-    // Wait for client to finish
-    coyote_thread.connSync(IS_CLIENT);
-
-    // Stop timing
-    auto end = std::chrono::high_resolution_clock::now();
-
-    // Read RX counter after benchmark
-    uint32_t rx_end = read_roce_rx_counter();
-    uint32_t rx_delta = rx_end - rx_start;
-
-    double total_time_ns = std::chrono::duration<double, std::nano>(end - start).count();
-    double avg_time_ns = total_time_ns / n_runs;
-
-    // Print RX packet stats
-    std::cout << "  [RX] pkts=" << rx_delta << " expected=" << expected_packets;
-    if (rx_delta > 0) {
-        std::cout << " (" << (100.0 * rx_delta / expected_packets) << "%)";
+    // When writing, the server asserts the written payload is correct (which the client sets)
+    // When reading, the client asserts the read payload is correct (which the server sets)
+    for (int i = 0; i < sg.len / sizeof(int); i++) {
+        mem[i] = operation ? 0 : i;        
     }
-    std::cout << std::endl;
 
-    // Verify data after benchmark
-    if (operation) {
-        int correct = 0;
-        int non_zero = 0;
-        for (size_t i = 0; i < total_ints && i < 20; i++) {
-            if (mem[i] != 0) non_zero++;
-            if (mem[i] == (int)i) correct++;
+    for (int i = 0; i < n_runs; i++) {
+        // Clear previous completion flags and sync with client
+        coyote_thread.clearCompleted();
+        coyote_thread.connSync(IS_CLIENT);
+
+        // For writes, wait until client has written the targer number of messages; then write them back
+        if (operation) {
+            while (coyote_thread.checkCompleted(coyote::CoyoteOper::LOCAL_WRITE) != transfers) {}
+
+            for (int i = 0; i < transfers; i++) {
+                coyote_thread.invoke(coyote::CoyoteOper::REMOTE_RDMA_WRITE, sg);
+            }
+        // For reads, the server is completely passive 
+        } else { 
+
         }
-        std::cout << "  [DATA] size=" << sg.len << " x" << transfers
-                  << ": " << non_zero << "/20 non-zero, "
-                  << correct << "/20 correct" << std::endl;
     }
-
-    return avg_time_ns;
+    
+    // Functional correctness check
+    if (operation) {
+        for (int i = 0; i < sg.len / sizeof(int); i++) {
+            assert(mem[i] == i);                        
+        }
+    }
 }
 
 int main(int argc, char *argv[])  {
+    // CLI arguments
     bool operation;
     unsigned int min_size, max_size, n_runs;
 
@@ -115,36 +95,23 @@ int main(int argc, char *argv[])  {
     std::cout << "Starting transfer size: " << min_size << std::endl;
     std::cout << "Ending transfer size: " << max_size << std::endl << std::endl;
 
-    constexpr size_t HW_BUFFER_SIZE = 4 * 1024 * 1024;
+    // Allocate Coyothe threa and set-up RDMA connections, buffer etc.
+    // initRDMA is explained in more detail in client/main.cpp
     coyote::cThread coyote_thread(DEFAULT_VFPGA_ID, getpid());
-    int *mem = (int *) coyote_thread.initRDMA(HW_BUFFER_SIZE, coyote::DEF_PORT);
+    int *mem = (int *) coyote_thread.initRDMA(max_size, coyote::DEF_PORT);
     if (!mem) { throw std::runtime_error("Could not allocate memory; exiting..."); }
 
-    HEADER("RDMA BENCHMARK: SERVER (measuring RX throughput)");
+    // Benchmark sweep; exactly like done in the client code
+    HEADER("RDMA BENCHMARK: SERVER");
     unsigned int curr_size = min_size;
     while(curr_size <= max_size) {
-        std::cout << "\n========================================" << std::endl;
-        std::cout << "SERVER: Testing size " << curr_size << " bytes" << std::endl;
-        std::cout << "========================================" << std::endl;
-
         coyote::rdmaSg sg = { .len = curr_size };
-
-        // Throughput test
-        std::cout << "[THROUGHPUT TEST] " << N_THROUGHPUT_REPS << " transfers x " << n_runs << " runs" << std::endl;
-        double throughput_time = run_bench(coyote_thread, sg, mem, N_THROUGHPUT_REPS, n_runs, operation);
-        double throughput = ((double) N_THROUGHPUT_REPS * (double) curr_size) / (1024.0 * 1024.0 * throughput_time * 1e-9);
-        std::cout << "  Size: " << std::setw(8) << curr_size << " B; ";
-        std::cout << "Throughput: " << std::setw(10) << std::fixed << std::setprecision(2) << throughput << " MB/s" << std::endl;
-
-        // Latency test
-        std::cout << "[LATENCY TEST] " << N_LATENCY_REPS << " transfers x " << n_runs << " runs" << std::endl;
-        double latency_time = run_bench(coyote_thread, sg, mem, N_LATENCY_REPS, n_runs, operation);
-        std::cout << "  Size: " << std::setw(8) << curr_size << " B; ";
-        std::cout << "Latency: " << std::setw(10) << std::fixed << std::setprecision(2) << latency_time / 1e3 << " us" << std::endl;
-
+        run_bench(coyote_thread, sg, mem, N_THROUGHPUT_REPS, n_runs, operation);
+        run_bench(coyote_thread, sg, mem, N_LATENCY_REPS, n_runs, operation);
         curr_size *= 2;
     }
 
+    // Final sync and exit
     coyote_thread.connSync(IS_CLIENT);
     return EXIT_SUCCESS;
 }

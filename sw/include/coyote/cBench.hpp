@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cDefs.hpp"
+#include <coyote/cDefs.hpp>
 
 #include <stdint.h>
 #include <stdio.h>

@@ -24,14 +24,7 @@
  * SOFTWARE.
  */
 
-#include "cThread.hpp"
-#include <errno.h>   // For errno
-#include <cstring>   // For strerror()
-#define RDMA_BYPASS_MODE 1
-
-inline bool isRdmaBypassMode() {
-    return RDMA_BYPASS_MODE == 1;
-}
+#include <coyote/cThread.hpp>
 
 namespace coyote {
 
@@ -250,16 +243,7 @@ void cThread::postCmd(uint64_t offs_3, uint64_t offs_2, uint64_t offs_1, uint64_
         std::hex << offs_3 << ", " << offs_2 << ", " << offs_1 << ", " << offs_0 << std::dec
     );
 
-    // Check outstanding commands to avoid oversaturating the command FIFO
-    #if RDMA_BYPASS_MODE == 1
-    // In bypass mode, use simple pacing since ACK-based flow control doesn't work
-    // Wait a small amount between commands to let the FIFO drain
-    if (cmd_cnt >= (CMD_FIFO_DEPTH - CMD_FIFO_THR)) {
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
-        cmd_cnt = 0;  // Reset local counter periodically
-    }
-    #else
-    // Normal mode: poll hardware counter for flow control
+    // Check outstanding commands; to avoid oversaturating the command FIFO
     while (cmd_cnt > (CMD_FIFO_DEPTH - CMD_FIFO_THR)) {
         #ifdef EN_AVX
         cmd_cnt = fcnfg.en_avx ? LOW_32(_mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::CTRL_REG)], 0x0)) :
@@ -272,7 +256,6 @@ void cThread::postCmd(uint64_t offs_3, uint64_t offs_2, uint64_t offs_1, uint64_
             std::this_thread::sleep_for(std::chrono::nanoseconds(SLEEP_TIME));
         }
     }
-    #endif
 
     // Send the commands
     #ifdef EN_AVX
@@ -452,7 +435,7 @@ void* cThread::getMem(CoyoteAlloc&& alloc) {
                 int err = errno;
                 fprintf(stderr,
                     "cThread: Hugepage allocation failed: Shell pg_l_bits=%u (requested page size = %lu KB), "
-                    "alloc.size=%zu, errno=%d (%s)\n",
+                    "alloc.size=%u, errno=%d (%s)\n",
                     fcnfg.ctrl_reg.pg_l_bits,
                     1UL << fcnfg.ctrl_reg.pg_l_bits,
                     alloc.size,
@@ -826,7 +809,6 @@ void cThread::invoke(CoyoteOper oper, rdmaSg sg, bool last) {
 
         postCmd(addr_cmd_dst, ctrl_cmd_dst, addr_cmd_src, ctrl_cmd_src);
     }
-
 }
 
 void cThread::invoke(CoyoteOper oper, tcpSg sg, bool last) {
@@ -861,95 +843,8 @@ void cThread::invoke(CoyoteOper oper, tcpSg sg, bool last) {
     postCmd(addr_cmd_dst, ctrl_cmd_dst, addr_cmd_src, ctrl_cmd_src);
 }
 
-/**
- * @brief Invoke RDMA operation on a specific named connection
- *
- * This overload is used for multi-FPGA scenarios where a single vFPGA needs
- * to communicate with multiple remote FPGAs. The connection name specifies
- * which QP to use for the operation.
- *
- * @param oper : RDMA operation (REMOTE_RDMA_READ, REMOTE_RDMA_WRITE, REMOTE_RDMA_SEND)
- * @param sg : Scatter-gather entry with connection name and transfer parameters
- * @param last : Whether this is the last transfer in a batch
- */
-void cThread::invoke(CoyoteOper oper, rdmaSgConn sg, bool last) {
-    DBG1("cThread: Call invoke for RDMA operation on connection '" << sg.connection << "' with length " << sg.len);
-
-    if (!isRemoteRdma(oper)) {
-        throw std::runtime_error("ERROR: cThread::invoke() called with rdmaSgConn flags, but the operation is not a REMOTE_READ/WRITE/SEND; exiting...");
-    }
-
-    if (!fcnfg.en_rdma) {
-        throw std::runtime_error("ERROR: cThread::invoke() called for an RDMA operation but the shell was not synthesized with RDMA support, exiting...");
-    }
-
-    if (sg.len > MAX_TRANSFER_SIZE) {
-        throw std::runtime_error("ERROR: cThread::invoke() - transfers over 128MB are currently not supported in Coyote, exiting...");
-    }
-
-    // Find the named connection
-    auto it = connections.find(sg.connection);
-    if (it == connections.end()) {
-        throw std::runtime_error("ERROR: Connection '" + sg.connection + "' not found; call initRDMAConnection() first");
-    }
-
-    fpga::ibvConnection* conn = it->second.get();
-    fpga::ibvQp* conn_qp = conn->qp.get();
-
-    // Check for loopback (same IP)
-    if (conn_qp->local.ip_addr == conn_qp->remote.ip_addr) {
-        DBG1("cThread: remote and local node for RDMA operation are identical; calling memcpy");
-
-        void *local_addr = (void*) ((uint64_t) conn_qp->local.vaddr + sg.local_offs);
-        void *remote_addr = (void*) ((uint64_t) conn_qp->remote.vaddr + sg.remote_offs);
-        memcpy(remote_addr, local_addr, sg.len);
-
-    } else {
-        // Local command and address
-        // NOTE: We use the connection's QPN here, not ctid
-        uint64_t ctrl_cmd_l =
-            (((static_cast<uint64_t>(oper) - REMOTE_OFFS_OPS) & CTRL_OPCODE_MASK) << CTRL_OPCODE_OFFS) |
-            ((conn->qpn & CTRL_PID_MASK) << CTRL_PID_OFFS) |  // Use connection QPN
-            ((sg.local_dest & CTRL_DEST_MASK) << CTRL_DEST_OFFS) |
-            (last ? CTRL_LAST : 0x0) |
-            ((sg.local_stream & CTRL_STRM_MASK) << CTRL_STRM_OFFS) |
-            (0x0) |
-            (static_cast<uint64_t>(sg.len) << CTRL_LEN_OFFS);
-
-        uint64_t addr_cmd_l = static_cast<uint64_t>((uint64_t) conn_qp->local.vaddr + sg.local_offs);
-
-        // Remote command and address
-        uint64_t ctrl_cmd_r =
-            (((static_cast<uint64_t>(oper) - REMOTE_OFFS_OPS) & CTRL_OPCODE_MASK) << CTRL_OPCODE_OFFS) |
-            ((conn->qpn & CTRL_PID_MASK) << CTRL_PID_OFFS) |  // Use connection QPN
-            ((sg.remote_dest & CTRL_DEST_MASK) << CTRL_DEST_OFFS) |
-            (last ? CTRL_LAST : 0x0) |
-            ((STRM_RDMA & CTRL_STRM_MASK) << CTRL_STRM_OFFS) |
-            (CTRL_START) |
-            (0x0) |
-            (static_cast<uint64_t>(sg.len) << CTRL_LEN_OFFS);
-
-        uint64_t addr_cmd_r = static_cast<uint64_t>((uint64_t) conn_qp->remote.vaddr + sg.remote_offs);
-
-        // Order - based on the distinction between Read and Write
-        uint64_t ctrl_cmd_src = isRemoteRead(oper) ? ctrl_cmd_r : ctrl_cmd_l;
-        uint64_t addr_cmd_src = isRemoteRead(oper) ? addr_cmd_r : addr_cmd_l;
-        uint64_t ctrl_cmd_dst = isRemoteRead(oper) ? ctrl_cmd_l : ctrl_cmd_r;
-        uint64_t addr_cmd_dst = isRemoteRead(oper) ? addr_cmd_l : addr_cmd_r;
-
-        postCmd(addr_cmd_dst, ctrl_cmd_dst, addr_cmd_src, ctrl_cmd_src);
-    }
-}
-
 uint32_t cThread::checkCompleted(CoyoteOper coper) const {
     DBG1("cThread: Called checkCompleted");
-    // In bypass mode, completions are not tracked by hardware
-    if (isRdmaBypassMode() && (isRemoteRead(coper) || isRemoteWriteOrSend(coper))) {
-        // For bypass mode, we can't track completions reliably
-        // Return a high number to indicate "completed"
-        return 0xFFFFFFFF;
-    }
-    
     /*
      * The order of these if-else clauses is very important in this function
      * LOCAL_TRANSFER are two-sided operations, which means isLocalRead and isLocalWrite
@@ -958,40 +853,40 @@ uint32_t cThread::checkCompleted(CoyoteOper coper) const {
      * it may return true before the write is actually completed. So here, we must check 
      * for writes first, then reads, and finally remote operations.
      */
-    if (isLocalWrite(coper)) {
-        if (fcnfg.en_wb) {
+	if (isLocalWrite(coper)) {
+		if (fcnfg.en_wb) {
             return wback[ctid + WR_WBACK * N_CTID_MAX];
-        } else {
+		} else {
             #ifdef EN_AVX
-            if (fcnfg.en_avx) 
-                return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 1);
-            else
+			if (fcnfg.en_avx) 
+				return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 1);
+			else
             #endif
-                return (HIGH_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_DMA_REG) + ctid]));
-        }
-    } else if (isLocalRead(coper)) {
-        if (fcnfg.en_wb) {
-            return wback[ctid + RD_WBACK * N_CTID_MAX];
-        } else {
+				return (HIGH_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_DMA_REG) + ctid]));
+		}
+	} else if (isLocalRead(coper)) {
+		if (fcnfg.en_wb) {
+			return wback[ctid + RD_WBACK * N_CTID_MAX];
+		} else {
             #ifdef EN_AVX
-            if (fcnfg.en_avx)
-                return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 0);
-            else 
+			if (fcnfg.en_avx)
+            	return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 0);
+			else 
             #endif
-                return (LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_DMA_REG) + ctid]));
-        }
-    } else if (isRemoteRead(coper)) {
-        if (fcnfg.en_wb) {
-            return wback[ctid + RD_RDMA_WBACK*N_CTID_MAX];
-        } else {
+				return (LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_DMA_REG) + ctid]));
+		}
+	} else if (isRemoteRead(coper)) {
+		if (fcnfg.en_wb) {
+			return wback[ctid + RD_RDMA_WBACK*N_CTID_MAX];
+		} else {
             #ifdef EN_AVX
-            if (fcnfg.en_avx) 
-                return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 2);
-            else 
+			if (fcnfg.en_avx) 
+				return _mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::STAT_DMA_REG) + ctid], 2);
+			else 
             #endif
-                return (LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_RDMA_REG) + ctid]));
-        }
-    } else if (isRemoteWriteOrSend(coper)) {
+				return (LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::STAT_RDMA_REG) + ctid]));
+		}
+	} else if (isRemoteWriteOrSend(coper)) {
         if (fcnfg.en_wb) {
             return wback[ctid + WR_RDMA_WBACK*N_CTID_MAX];
         } else {
@@ -1056,15 +951,9 @@ void cThread::writeQpContext(uint32_t port) {
         offs[1] = ((static_cast<uint64_t>(qpair->local.psn) & 0xffffff) << QP_CONTEXT_LPSN_OFFS) | 
                   ((static_cast<uint64_t>(qpair->remote.psn) & 0xffffff) << QP_CONTEXT_RPSN_OFFS);
 
-        #if RDMA_BYPASS_MODE == 1
-        // Bypass mode: Write LOCAL vaddr for RX buffer base
-        offs[2] = ((static_cast<uint64_t>((uint64_t) qpair->local.vaddr) & 0xffffffffffff) << QP_CONTEXT_VADDR_OFFS);
-        std::cout << "[BYPASS MODE] Writing local RX buffer base: 0x" << std::hex << (uint64_t)qpair->local.vaddr << std::dec << std::endl;
-        #else
-        // Full RDMA mode: Write REMOTE vaddr for TX targeting
         offs[2] = ((static_cast<uint64_t>((uint64_t) qpair->remote.vaddr) & 0xffffffffffff) << QP_CONTEXT_VADDR_OFFS);
-        #endif
-   	
+
+    	
         // Write this information to the vFPGA configuration registers
         #ifdef EN_AVX
         if (fcnfg.en_avx) {
@@ -1141,8 +1030,8 @@ void cThread::connSync(bool client) {
 void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_address) {
     // Served address provided, so this node is the client
     if (server_address) {
-        std::cout << "[CLIENT] Attempting to connect to " << server_address << ":" << port << std::endl;
-        
+        DBG3("cThread: initRDMA called from client side with server address " << server_address);
+
         char* service;
         if (asprintf(&service, "%d", port) < 0) { 
             throw std::runtime_error("ERROR: asprintf() failed"); 
@@ -1153,24 +1042,19 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
         struct addrinfo hints = {};
         hints.ai_family = AF_INET;
         hints.ai_socktype = SOCK_STREAM;
-        
-        std::cout << "[CLIENT] Resolving address..." << std::endl;
-        int n = getaddrinfo(server_address, service, &hints, &res);  // ✅ n is declared here
+        int n = getaddrinfo(server_address, service, &hints, &res);
         if (n < 0) {
             free(service);
             throw std::runtime_error("ERROR: getaddrinfo() failed");
         }
 
-        std::cout << "[CLIENT] Creating socket and attempting connection..." << std::endl;
         struct addrinfo *t;
         for (t = res; t; t = t->ai_next) {
             connfd = ::socket(t->ai_family, t->ai_socktype, t->ai_protocol);
             if (connfd >= 0) {
                 if (!::connect(connfd, t->ai_addr, t->ai_addrlen)) {
-                    std::cout << "[CLIENT] Connected successfully!" << std::endl;
                     break;
                 } else {
-                    std::cout << "[CLIENT] Connect attempt failed, trying next address..." << std::endl;
                     ::close(connfd);
                     connfd = -1;
                 }
@@ -1184,17 +1068,14 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
         }
 
         // Allocate memory for RDMA operations
-        std::cout << "[CLIENT] Allocating memory..." << std::endl;
         void *mem = getMem({CoyoteAllocType::HPF, buffer_size, true});
         
         // Send the memory address to the server
-        std::cout << "[CLIENT] Sending queue pair to server..." << std::endl;
         if (write(connfd, &(qpair->local), sizeof(ibvQ)) != sizeof(ibvQ)) {
             throw std::runtime_error("ERROR: Failed to send queue to server");
         }
 
         // Read server's memory address
-        std::cout << "[CLIENT] Waiting for server's queue pair..." << std::endl;
         char recv_buff[RECV_BUFF_SIZE];
         if (read(connfd, recv_buff, sizeof(ibvQ)) != sizeof(ibvQ)) {
             throw std::runtime_error("ERROR: Failed to read queue from server");
@@ -1202,7 +1083,6 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
         memcpy(&(qpair->remote), recv_buff, sizeof(ibvQ));
 
         // Write necessary information to the hardware registers
-        std::cout << "[CLIENT] Configuring hardware..." << std::endl;
         writeQpContext(port);
         doArpLookup(qpair->remote.ip_addr);
         
@@ -1216,7 +1096,7 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
     
     // Served address not provided, so this node is the server
     } else {
-        std::cout << "[SERVER] Starting server on port " << port << std::endl;
+        DBG3("cThread: initRDMA called from server side");
 
         // Accept connections on the specified port from the client(s)
         sockfd = ::socket(AF_INET, SOCK_STREAM, 0); 
@@ -1224,20 +1104,12 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
             throw std::runtime_error("ERROR: Could not create a socket");
         }
 
-        // ✅ Set socket option to reuse address (prevents "Address already in use" errors)
-        int opt = 1;
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-            std::cout << "[SERVER] Warning: Could not set SO_REUSEADDR: " << strerror(errno) << std::endl;
-        }
-
         struct sockaddr_in server; 
         server.sin_family = AF_INET; 
         server.sin_port = htons(port); 
-        server.sin_addr.s_addr = INADDR_ANY;
+        server.sin_addr.s_addr = INADDR_ANY; 
 
-        std::cout << "[SERVER] Binding to port..." << std::endl;
         if (::bind(sockfd, (struct sockaddr*) &server, sizeof(server)) < 0) {
-            std::cout << "[SERVER] Bind failed! Error: " << strerror(errno) << std::endl;
             throw std::runtime_error("ERROR: Could not bind a socket");
         }
 
@@ -1245,23 +1117,19 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
             throw std::runtime_error("ERROR: Could not listen to a port: " + std::to_string(port));
         }
 
-        std::cout << "[SERVER] Listening on port " << port << "..." << std::endl;
         if (listen(sockfd, MAX_NUM_CLIENTS) == -1) {
             throw std::runtime_error("ERROR: sockfd listen failed");
         }
 
-        std::cout << "[SERVER] Waiting for client connection..." << std::endl;
         if ((connfd = ::accept(sockfd, NULL, 0)) != -1) {
-            std::cout << "[SERVER] Client connected!" << std::endl;
             is_connected = true;
-            uint32_t n;  // ✅ Declare n here for server side
+            uint32_t n; 
 
             // Allocate a receive buffer for data sent through the out-of-band connection
             char recv_buf[RECV_BUFF_SIZE]; 
             memset(recv_buf, 0, RECV_BUFF_SIZE); 
             
             // Read QP from the client
-            std::cout << "[SERVER] Reading client's queue pair..." << std::endl;
             if ((n = ::read(connfd, recv_buf, sizeof(ibvQ))) == sizeof(ibvQ)) {
                 memcpy(&(qpair->remote), recv_buf, sizeof(ibvQ));
             } else {
@@ -1270,11 +1138,9 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
                 throw std::runtime_error("ERROR: Failed to read queue from client");
             }
 
-            std::cout << "[SERVER] Allocating memory..." << std::endl;
             void *mem = getMem({CoyoteAllocType::HPF, buffer_size, true});
 
             // Send QP to the client
-            std::cout << "[SERVER] Sending queue pair to client..." << std::endl;
             if (::write(connfd, &(qpair->local), sizeof(ibvQ)) != sizeof(ibvQ))  {
                 ::close(connfd);
                 is_connected = false;
@@ -1282,7 +1148,6 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
             }
 
             //  Write necessary information to the hardware registers
-            std::cout << "[SERVER] Configuring hardware..." << std::endl;
             writeQpContext(port); 
             doArpLookup(qpair->remote.ip_addr); 
             
@@ -1293,225 +1158,7 @@ void* cThread::initRDMA(uint32_t buffer_size, uint16_t port, const char* server_
             throw std::runtime_error("ERROR: Failed to accept connection from client");
         }
     }
-}
 
-// ======-------------------------------------------------------------------------------
-// MULTI-FPGA RDMA CONNECTION MANAGEMENT
-// ======-------------------------------------------------------------------------------
-
-/**
- * @brief Initialize a named RDMA connection
- *
- * This function establishes a named RDMA connection for multi-FPGA scenarios.
- * Unlike initRDMA() which creates a single default connection, this allows
- * multiple connections to be established with different remote nodes.
- *
- * Usage patterns:
- *   - Client mode: initRDMAConnection("to_rose", size, port, "rose_ip")
- *   - Server mode: initRDMAConnection("from_amy", size, port)
- *
- * @param conn_name : Unique name for this connection (e.g., "to_rose", "from_amy")
- * @param buffer_size : Size of the RDMA buffer to allocate
- * @param port : TCP/UDP port for connection establishment and RDMA
- * @param server_address : Remote IP (client mode) or nullptr (server mode)
- * @return Pointer to allocated buffer, or nullptr on failure
- */
-void* cThread::initRDMAConnection(const std::string& conn_name, uint32_t buffer_size,
-                                   uint16_t port, const char* server_address) {
-    std::cout << "[MULTI-QP] Initializing connection '" << conn_name << "'" << std::endl;
-
-    // Check if connection already exists
-    if (connections.find(conn_name) != connections.end()) {
-        throw std::runtime_error("ERROR: Connection '" + conn_name + "' already exists");
-    }
-
-    if (!fcnfg.en_rdma) {
-        throw std::runtime_error("ERROR: RDMA not enabled in hardware configuration");
-    }
-
-    // Allocate a new QPN for this connection
-    uint16_t conn_qpn = next_qpn++;
-    if (conn_qpn >= 500) {  // MAX_QPS from hardware
-        throw std::runtime_error("ERROR: Maximum number of QPs exceeded");
-    }
-
-    // Create the connection object
-    auto conn = std::make_unique<fpga::ibvConnection>(conn_name, conn_qpn);
-    fpga::ibvQp* qp = conn->qp.get();
-
-    // Initialize local QP info (similar to constructor setup)
-    std::default_random_engine rand_gen(seed);
-    std::uniform_int_distribution<int> distr(0, std::numeric_limits<std::uint32_t>::max());
-
-    uint64_t tmp[MAX_USER_ARGS];
-    if (ioctl(fd, IOCTL_GET_IP_ADDRESS, &tmp)) {
-        throw std::runtime_error("ERROR: IOCTL_GET_IP_ADDRESS failed");
-    }
-
-    uint32_t ibv_ip_addr = (uint32_t) tmp[0];
-    qp->local.ip_addr = ibv_ip_addr;
-    qp->local.uintToGid(0, ibv_ip_addr);
-    qp->local.uintToGid(8, ibv_ip_addr);
-    qp->local.uintToGid(16, ibv_ip_addr);
-    qp->local.uintToGid(24, ibv_ip_addr);
-    qp->local.qpn = conn_qpn;  // Use the assigned QPN
-    qp->local.psn = distr(rand_gen) & 0xFFFFFF;
-    qp->local.rkey = 0;
-
-    void* mem = nullptr;
-
-    // Client mode: connect to remote server
-    if (server_address) {
-        std::cout << "[CLIENT:" << conn_name << "] Connecting to " << server_address << ":" << port << std::endl;
-
-        char* service;
-        if (asprintf(&service, "%d", port) < 0) {
-            throw std::runtime_error("ERROR: asprintf() failed");
-        }
-
-        struct addrinfo *res;
-        struct addrinfo hints = {};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-
-        if (getaddrinfo(server_address, service, &hints, &res) < 0) {
-            free(service);
-            throw std::runtime_error("ERROR: getaddrinfo() failed");
-        }
-
-        struct addrinfo *t;
-        for (t = res; t; t = t->ai_next) {
-            conn->connfd = ::socket(t->ai_family, t->ai_socktype, t->ai_protocol);
-            if (conn->connfd >= 0) {
-                if (!::connect(conn->connfd, t->ai_addr, t->ai_addrlen)) {
-                    std::cout << "[CLIENT:" << conn_name << "] Connected!" << std::endl;
-                    break;
-                }
-                ::close(conn->connfd);
-                conn->connfd = -1;
-            }
-        }
-
-        free(service);
-        freeaddrinfo(res);
-
-        if (conn->connfd < 0) {
-            throw std::runtime_error("ERROR: Could not connect to " + std::string(server_address));
-        }
-        conn->is_connected = true;
-
-        // Allocate memory
-        mem = getMem({CoyoteAllocType::HPF, buffer_size, true});
-        qp->local.vaddr = mem;
-        qp->local.size = buffer_size;
-
-        // Exchange QP info
-        std::cout << "[CLIENT:" << conn_name << "] Exchanging QP info..." << std::endl;
-        if (write(conn->connfd, &(qp->local), sizeof(ibvQ)) != sizeof(ibvQ)) {
-            throw std::runtime_error("ERROR: Failed to send QP info");
-        }
-
-        char recv_buff[256];
-        if (read(conn->connfd, recv_buff, sizeof(ibvQ)) != sizeof(ibvQ)) {
-            throw std::runtime_error("ERROR: Failed to receive QP info");
-        }
-        memcpy(&(qp->remote), recv_buff, sizeof(ibvQ));
-
-        // Configure hardware
-        std::cout << "[CLIENT:" << conn_name << "] Configuring hardware for QPN=" << conn_qpn << std::endl;
-
-    // Server mode: wait for connection
-    } else {
-        std::cout << "[SERVER:" << conn_name << "] Listening on port " << port << std::endl;
-
-        int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (listen_fd == -1) {
-            throw std::runtime_error("ERROR: Could not create socket");
-        }
-
-        int opt = 1;
-        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-        struct sockaddr_in server;
-        server.sin_family = AF_INET;
-        server.sin_port = htons(port);
-        server.sin_addr.s_addr = INADDR_ANY;
-
-        if (::bind(listen_fd, (struct sockaddr*) &server, sizeof(server)) < 0) {
-            ::close(listen_fd);
-            throw std::runtime_error("ERROR: Could not bind socket to port " + std::to_string(port));
-        }
-
-        if (listen(listen_fd, 1) == -1) {
-            ::close(listen_fd);
-            throw std::runtime_error("ERROR: listen() failed");
-        }
-
-        std::cout << "[SERVER:" << conn_name << "] Waiting for connection..." << std::endl;
-        conn->connfd = ::accept(listen_fd, NULL, 0);
-        ::close(listen_fd);  // Close listening socket after accept
-
-        if (conn->connfd == -1) {
-            throw std::runtime_error("ERROR: accept() failed");
-        }
-        conn->is_connected = true;
-        std::cout << "[SERVER:" << conn_name << "] Client connected!" << std::endl;
-
-        // Read remote QP info first
-        char recv_buf[256];
-        if (::read(conn->connfd, recv_buf, sizeof(ibvQ)) != sizeof(ibvQ)) {
-            ::close(conn->connfd);
-            throw std::runtime_error("ERROR: Failed to read QP from client");
-        }
-        memcpy(&(qp->remote), recv_buf, sizeof(ibvQ));
-
-        // Allocate memory
-        mem = getMem({CoyoteAllocType::HPF, buffer_size, true});
-        qp->local.vaddr = mem;
-        qp->local.size = buffer_size;
-
-        // Send local QP info
-        if (::write(conn->connfd, &(qp->local), sizeof(ibvQ)) != sizeof(ibvQ)) {
-            ::close(conn->connfd);
-            throw std::runtime_error("ERROR: Failed to send QP to client");
-        }
-
-        std::cout << "[SERVER:" << conn_name << "] Configuring hardware for QPN=" << conn_qpn << std::endl;
-    }
-
-    // Store connection before writing context
-    connections[conn_name] = std::move(conn);
-
-    // Write QP context to hardware using the connection's QPN
-    writeQpContext(conn_name, port);
-    doArpLookup(connections[conn_name]->qp->remote.ip_addr);
-
-    // Debug output
-    std::cout << "[" << conn_name << "] Connection established:" << std::endl;
-    connections[conn_name]->qp->local.print("  Local: ");
-    connections[conn_name]->qp->remote.print("  Remote: ");
-
-    return mem;
-}
-
-/**
- * @brief Close a named RDMA connection
- */
-void cThread::closeRDMAConnection(const std::string& conn_name) {
-    auto it = connections.find(conn_name);
-    if (it == connections.end()) {
-        return;
-    }
-
-    fpga::ibvConnection* conn = it->second.get();
-    if (conn->is_connected && conn->connfd >= 0) {
-        ::close(conn->connfd);
-        conn->connfd = -1;
-        conn->is_connected = false;
-    }
-
-    // Note: We don't remove from the map to avoid QPN reuse issues
-    std::cout << "[" << conn_name << "] Connection closed" << std::endl;
 }
 
 void cThread::closeConn() {
@@ -1575,61 +1222,8 @@ int32_t cThread::getCtid() const { return ctid; };
 
 pid_t  cThread::getHpid() const { return hpid; };
 
-fpga::ibvQp* cThread::getQpair() const { return qpair.get(); }
-
-fpga::ibvQp* cThread::getQpair(const std::string& conn_name) {
-    auto it = connections.find(conn_name);
-    return (it != connections.end()) ? it->second->qp.get() : nullptr;
-}
-
-bool cThread::hasConnection(const std::string& conn_name) const {
-    return connections.find(conn_name) != connections.end();
-}
-
-fpga::ibvConnection* cThread::getConnection(const std::string& conn_name) {
-    auto it = connections.find(conn_name);
-    return (it != connections.end()) ? it->second.get() : nullptr;
-}
-
-void cThread::connSync(const std::string& conn_name, bool client) {
-    DBG1("cThread::connSync(conn_name=" << conn_name << ", client=" << client << ")");
-
-    auto it = connections.find(conn_name);
-    if (it == connections.end()) {
-        throw std::runtime_error("ERROR: Connection '" + conn_name + "' not found");
-    }
-
-    auto& conn = it->second;
-    if (!conn->is_connected || conn->connfd < 0) {
-        throw std::runtime_error("ERROR: Connection '" + conn_name + "' is not established");
-    }
-
-    if (client) {
-        // Client sends first, then waits for response
-        sendAckOnFd(conn->connfd, 1);
-        readAckOnFd(conn->connfd);
-    } else {
-        // Server waits first, then sends
-        readAckOnFd(conn->connfd);
-        sendAckOnFd(conn->connfd, 1);
-    }
-}
-
-// Helper functions for multi-connection sync
-void cThread::sendAckOnFd(int fd, uint32_t ack) {
-    if (write(fd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        throw std::runtime_error("ERROR: Failed to send ack");
-    }
-}
-
-uint32_t cThread::readAckOnFd(int fd) {
-    uint32_t ack;
-    if (read(fd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
-        throw std::runtime_error("ERROR: Failed to read ack");
-    }
-    return ack;
-}
-
+ibvQp* cThread::getQpair() const { return qpair.get(); }
+	
 void cThread::printDebug() const {
 	std::cout << "-- STATISTICS - ID: cThread ID" << ctid << ", vFPGA ID" << vfid << std::endl;
 	std::cout << "-----------------------------------------------" << std::endl;
