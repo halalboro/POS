@@ -90,7 +90,7 @@ module roce_stack (
 // SQ
 //
 
-metaIntf #(.STYPE(dreq_t)) rdma_sq ();
+metaIntf #(.STYPE(dreq_t)) rdma_sq (.aclk(nclk), .aresetn(nresetn));
 logic [RDMA_REQ_BITS-1:0] rdma_sq_data;
 
 always_comb begin
@@ -113,7 +113,7 @@ always_comb begin
     // FC and CQ
     //
     
-    metaIntf #(.STYPE(dack_t)) rdma_ack ();
+    metaIntf #(.STYPE(dack_t)) rdma_ack (.aclk(nclk), .aresetn(nresetn));
     logic [RDMA_ACK_BITS-1:0] ack_meta_data;
     
     assign rdma_ack.data.ack.opcode = ack_meta_data[0+:OPCODE_BITS];
@@ -199,8 +199,8 @@ always_comb begin
     //
     ///////////////////////////////////////////////////////////////////////////
     
-    metaIntf #(.STYPE(req_t)) rdma_rd_req ();
-    metaIntf #(.STYPE(req_t)) rdma_wr_req ();
+    metaIntf #(.STYPE(req_t)) rdma_rd_req (.aclk(nclk), .aresetn(nresetn));
+    metaIntf #(.STYPE(req_t)) rdma_wr_req (.aclk(nclk), .aresetn(nresetn));
     logic [RDMA_BASE_REQ_BITS-1:0] rd_cmd_data;
     logic [RDMA_BASE_REQ_BITS-1:0] wr_cmd_data;
     
@@ -274,9 +274,9 @@ always_comb begin
     //
     ///////////////////////////////////////////////////////////////////////////
     
-    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_0 ();
-    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_1 ();
-    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_2 ();
+    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_0 (.aclk(nclk), .aresetn(nresetn));
+    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_1 (.aclk(nclk), .aresetn(nresetn));
+    metaIntf #(.STYPE(logic[103:0])) m_axis_dbg_2 (.aclk(nclk), .aresetn(nresetn));
     assign m_axis_dbg_0.ready = 1'b1;
     assign m_axis_dbg_1.ready = 1'b1;
     assign m_axis_dbg_2.ready = 1'b1;

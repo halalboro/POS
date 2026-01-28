@@ -29,9 +29,9 @@
 
 import lynxTypes::*;
 
-// POS vIO Switch (N_ID=2, 11 ports): vFIU[0-1], Host_TX, Host_RX, RDMA_RX, RDMA_TX_REQ, RDMA_TX_RSP, TCP, Bypass_RX, Bypass_TX_REQ, Bypass_TX_RSP
+// POS vIO Switch (N_ID=1, 10 ports): vFIU[0-0], Host_TX, Host_RX, RDMA_RX, RDMA_TX_REQ, RDMA_TX_RSP, TCP, Bypass_RX, Bypass_TX_REQ, Bypass_TX_RSP
 // Port formula: N + 9 (N vFIU + 2 Host + 3 RDMA + 1 TCP + 3 Bypass)
-module vio_switch_2 #(
+module vio_switch_1 #(
     parameter integer N_ID = N_REGIONS
 ) (
     input  logic                             aclk,
@@ -198,7 +198,7 @@ for(genvar i = 0; i < N_ID; i++) begin
     assign route_out[i] = axis_switch_m_tdest_vfiu[i];
 end
 
-// RDMA RX signals (Stack -> vFPGA)
+// RDMA RX signals (Stack → vFPGA)
 logic                        data_rdma_rx_sink_tvalid;
 logic                        data_rdma_rx_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_rdma_rx_sink_tdata;
@@ -230,7 +230,7 @@ assign data_rdma_rx_src.tid = data_rdma_rx_src_tid;
 assign data_rdma_rx_src.tdest = axis_switch_m_tdest_rdma_rx;
 assign data_rdma_rx_src_tready = data_rdma_rx_src.tready;
 
-// RDMA TX REQ signals (vFPGA -> Stack, requests)
+// RDMA TX REQ signals (vFPGA → Stack, requests)
 logic                        data_rdma_tx_req_sink_tvalid;
 logic                        data_rdma_tx_req_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_rdma_tx_req_sink_tdata;
@@ -262,7 +262,7 @@ assign data_rdma_tx_req_src.tid = data_rdma_tx_req_src_tid;
 assign data_rdma_tx_req_src.tdest = axis_switch_m_tdest_rdma_tx_req;
 assign data_rdma_tx_req_src_tready = data_rdma_tx_req_src.tready;
 
-// RDMA TX RSP signals (vFPGA -> Stack, responses)
+// RDMA TX RSP signals (vFPGA → Stack, responses)
 logic                        data_rdma_tx_rsp_sink_tvalid;
 logic                        data_rdma_tx_rsp_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_rdma_tx_rsp_sink_tdata;
@@ -326,7 +326,7 @@ assign data_tcp_src.tid = data_tcp_src_tid;
 assign data_tcp_src.tdest = axis_switch_m_tdest_tcp;
 assign data_tcp_src_tready = data_tcp_src.tready;
 
-// Bypass RX signals (Stack -> vFPGA)
+// Bypass RX signals (Stack → vFPGA)
 logic                        data_bypass_rx_sink_tvalid;
 logic                        data_bypass_rx_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_bypass_rx_sink_tdata;
@@ -358,7 +358,7 @@ assign data_bypass_rx_src.tid = data_bypass_rx_src_tid;
 assign data_bypass_rx_src.tdest = axis_switch_m_tdest_bypass_rx;
 assign data_bypass_rx_src_tready = data_bypass_rx_src.tready;
 
-// Bypass TX REQ signals (vFPGA -> Stack, requests)
+// Bypass TX REQ signals (vFPGA → Stack, requests)
 logic                        data_bypass_tx_req_sink_tvalid;
 logic                        data_bypass_tx_req_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_bypass_tx_req_sink_tdata;
@@ -390,7 +390,7 @@ assign data_bypass_tx_req_src.tid = data_bypass_tx_req_src_tid;
 assign data_bypass_tx_req_src.tdest = axis_switch_m_tdest_bypass_tx_req;
 assign data_bypass_tx_req_src_tready = data_bypass_tx_req_src.tready;
 
-// Bypass TX RSP signals (vFPGA -> Stack, responses)
+// Bypass TX RSP signals (vFPGA → Stack, responses)
 logic                        data_bypass_tx_rsp_sink_tvalid;
 logic                        data_bypass_tx_rsp_sink_tready;
 logic [AXI_DATA_BITS-1:0]    data_bypass_tx_rsp_sink_tdata;
@@ -422,8 +422,8 @@ assign data_bypass_tx_rsp_src.tid = data_bypass_tx_rsp_src_tid;
 assign data_bypass_tx_rsp_src.tdest = axis_switch_m_tdest_bypass_tx_rsp;
 assign data_bypass_tx_rsp_src_tready = data_bypass_tx_rsp_src.tready;
 
-// Instantiate axis_switch IP (11 ports for N_ID=2)
-vio_switch_ip_11 inst_vio_switch_ip_0 (
+// Instantiate axis_switch IP (10 ports for N_ID=1)
+vio_switch_ip_10 inst_vio_switch_ip_0 (
     .aclk(aclk),
     .aresetn(aresetn),
 
@@ -438,7 +438,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tdata,
         data_host_rx_src_tdata,
         data_host_tx_src_tdata,
-        data_vfiu_src_tdata[1], data_vfiu_src_tdata[0]
+        data_vfiu_src_tdata[0]
     }),
     .m_axis_tdest({
         axis_switch_m_tdest_bypass_tx_rsp,
@@ -450,7 +450,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         axis_switch_m_tdest_rdma_rx,
         axis_switch_m_tdest_host_rx,
         axis_switch_m_tdest_host_tx,
-        axis_switch_m_tdest_vfiu[1], axis_switch_m_tdest_vfiu[0]
+        axis_switch_m_tdest_vfiu[0]
     }),
     .m_axis_tready({
         data_bypass_tx_rsp_src_tready,
@@ -462,7 +462,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tready,
         data_host_rx_src_tready,
         data_host_tx_src_tready,
-        data_vfiu_src_tready[1], data_vfiu_src_tready[0]
+        data_vfiu_src_tready[0]
     }),
     .m_axis_tvalid({
         data_bypass_tx_rsp_src_tvalid,
@@ -474,7 +474,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tvalid,
         data_host_rx_src_tvalid,
         data_host_tx_src_tvalid,
-        data_vfiu_src_tvalid[1], data_vfiu_src_tvalid[0]
+        data_vfiu_src_tvalid[0]
     }),
     .m_axis_tlast({
         data_bypass_tx_rsp_src_tlast,
@@ -486,7 +486,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tlast,
         data_host_rx_src_tlast,
         data_host_tx_src_tlast,
-        data_vfiu_src_tlast[1], data_vfiu_src_tlast[0]
+        data_vfiu_src_tlast[0]
     }),
     .m_axis_tid({
         data_bypass_tx_rsp_src_tid,
@@ -498,7 +498,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tid,
         data_host_rx_src_tid,
         data_host_tx_src_tid,
-        data_vfiu_src_tid[1], data_vfiu_src_tid[0]
+        data_vfiu_src_tid[0]
     }),
     .m_axis_tkeep({
         data_bypass_tx_rsp_src_tkeep,
@@ -510,7 +510,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_src_tkeep,
         data_host_rx_src_tkeep,
         data_host_tx_src_tkeep,
-        data_vfiu_src_tkeep[1], data_vfiu_src_tkeep[0]
+        data_vfiu_src_tkeep[0]
     }),
 
     // Slave (input) ports - from sources to switch
@@ -524,7 +524,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tdata,
         data_host_rx_sink_tdata,
         data_host_tx_sink_tdata,
-        data_vfiu_sink_tdata[1], data_vfiu_sink_tdata[0]
+        data_vfiu_sink_tdata[0]
     }),
     .s_axis_tdest({
         data_bypass_tx_rsp_sink_tdest,
@@ -536,7 +536,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tdest,
         data_host_rx_sink_tdest,
         data_host_tx_sink_tdest,
-        route_in[1], route_in[0]
+        route_in[0]
     }),
     .s_axis_tready({
         data_bypass_tx_rsp_sink_tready,
@@ -548,7 +548,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tready,
         data_host_rx_sink_tready,
         data_host_tx_sink_tready,
-        data_vfiu_sink_tready[1], data_vfiu_sink_tready[0]
+        data_vfiu_sink_tready[0]
     }),
     .s_axis_tvalid({
         data_bypass_tx_rsp_sink_tvalid,
@@ -560,7 +560,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tvalid,
         data_host_rx_sink_tvalid,
         data_host_tx_sink_tvalid,
-        data_vfiu_sink_tvalid[1], data_vfiu_sink_tvalid[0]
+        data_vfiu_sink_tvalid[0]
     }),
     .s_axis_tlast({
         data_bypass_tx_rsp_sink_tlast,
@@ -572,7 +572,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tlast,
         data_host_rx_sink_tlast,
         data_host_tx_sink_tlast,
-        data_vfiu_sink_tlast[1], data_vfiu_sink_tlast[0]
+        data_vfiu_sink_tlast[0]
     }),
     .s_axis_tid({
         data_bypass_tx_rsp_sink_tid,
@@ -584,7 +584,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tid,
         data_host_rx_sink_tid,
         data_host_tx_sink_tid,
-        data_vfiu_sink_tid[1], data_vfiu_sink_tid[0]
+        data_vfiu_sink_tid[0]
     }),
     .s_axis_tkeep({
         data_bypass_tx_rsp_sink_tkeep,
@@ -596,7 +596,7 @@ vio_switch_ip_11 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tkeep,
         data_host_rx_sink_tkeep,
         data_host_tx_sink_tkeep,
-        data_vfiu_sink_tkeep[1], data_vfiu_sink_tkeep[0]
+        data_vfiu_sink_tkeep[0]
     }),
     .s_decode_err(axis_switch_s_decode_err)
 );
