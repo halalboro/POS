@@ -1,7 +1,6 @@
 build*/
 bstreams/
 bitstreams/
-speech/
 iprepo/
 tmp/
 hd_visual/
@@ -52,11 +51,3 @@ misc/
 __pycache__
 docs/docs-sw/
 docs/docs-driver/
-examples/09_perf_rdma/hw/rdma
-examples/09_perf_rdma/sw/client
-examples/09_perf_rdma/sw/server
-examples/09_perf_rdma/hw/bypass
-examples/11_perf_tcp/client/hw/tcp_client
-examples/11_perf_tcp/server/hw/tcp_server
-examples/11_perf_tcp/client/sw/client
-examples/11_perf_tcp/server/sw/server

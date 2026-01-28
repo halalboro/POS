@@ -49,7 +49,7 @@ module ack_gap_enforcer(
             gap_counter <= 8'h0;
         end else begin
             if(is_ack) begin
-                // In case we witness an ACK, set the gap counter to 8'h55
+                // In case we witness an ACK, set the gap counter to 8'h28 = 40
                 gap_counter <= 8'h55; // 90ns gap
             end else begin
                 // As long as the gap is present, decrement the counter 
