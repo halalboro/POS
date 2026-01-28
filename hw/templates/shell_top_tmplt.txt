@@ -617,9 +617,12 @@ module shell_top (
 
     // VIU control signals
     logic [13:0] vlan_ctrl;
-    logic [1:0]  viu_port_in;
-    logic [13:0] viu_route_out;
-    logic [1:0]  viu_port_out;
+
+    // TX path: route_id from vIO Switch for VLAN tag encoding
+    logic [13:0] viu_tx_tdest;
+
+    // RX path: route_id extracted from VLAN tag for vIO Switch routing
+    logic [13:0] viu_rx_tdest;  // Synchronized route_id with packet data
 
 {% if cnfg.en_stats %}
     // Net stats
@@ -723,6 +726,10 @@ module shell_top (
     metaIntf #(.STYPE(tcp_open_rsp_t)) tcp_open_rsp ();
     metaIntf #(.STYPE(tcp_close_req_t)) tcp_close_req  ();
     metaIntf #(.STYPE(tcp_notify_t)) tcp_notify  ();
+
+    // TCP route_id for VIU (POS) - from tcp_arbiter connection table
+    logic [13:0] tcp_tx_route_id;
+    logic        tcp_tx_route_id_valid;
     metaIntf #(.STYPE(tcp_rd_pkg_t)) tcp_rd_pkg  ();
     metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta  ();
     metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta  ();
@@ -797,9 +804,12 @@ module shell_top (
         .s_tcp_tx_meta(tcp_tx_meta),
         .m_tcp_tx_stat(tcp_tx_stat),
         .s_axis_tcp_tx(axis_tcp_tx),
-        .m_axis_tcp_rx(axis_tcp_rx),   
-        .s_ddr_offset_addr_tcp(ddr_offset_addr_tcp), 
+        .m_axis_tcp_rx(axis_tcp_rx),
+        .s_ddr_offset_addr_tcp(ddr_offset_addr_tcp),
         .m_axi_tcp_ddr(axi_ddr_tcp),
+        // TCP route_id for VIU (POS)
+        .tcp_tx_route_id(tcp_tx_route_id),
+        .tcp_tx_route_id_valid(tcp_tx_route_id_valid),
 {% endif %}
 {% if cnfg.en_sniffer %}
         .m_rx_sniffer(rx_sniffer),
@@ -808,9 +818,12 @@ module shell_top (
 {% endif %}
         // VIU control (VLAN routing capability)
         .vlan_ctrl(vlan_ctrl),
-        .viu_port_in(viu_port_in),
-        .viu_route_out(viu_route_out),
-        .viu_port_out(viu_port_out),
+
+        // TX path: route_id from vIO Switch for VLAN tag encoding
+        .viu_tx_tdest(viu_tx_tdest),
+
+        // RX path: route_id for vIO Switch routing
+        .viu_rx_tdest(viu_rx_tdest),
 
         .aclk(aclk),
         .aresetn(aresetn),
@@ -1371,6 +1384,9 @@ module shell_top (
         .s_tcp_tx_stat(tcp_tx_stat),
         .s_axis_tcp(axis_tcp_rx),
         .m_axis_tcp(axis_tcp_tx),
+        // TCP route_id for VIU (POS)
+        .m_tcp_tx_route_id(tcp_tx_route_id),
+        .m_tcp_tx_route_id_valid(tcp_tx_route_id_valid),
 {% endif %}
 {% if cnfg.en_sniffer %}
         .s_rx_sniffer(rx_sniffer),
@@ -1384,9 +1400,10 @@ module shell_top (
         .m_usr_irq(usr_irq[0+:{{ cnfg.n_reg }}]),
 {% if cnfg.en_net %}
         .m_vlan_ctrl(vlan_ctrl),
-        .s_viu_port_in(viu_port_in),
-        .m_viu_route_out(viu_route_out),
-        .m_viu_port_out(viu_port_out),
+        // TX path: route_id to VIU for VLAN encoding
+        .m_viu_tx_tdest(viu_tx_tdest),
+        // RX path: route_id from VIU for routing
+        .s_viu_rx_tdest(viu_rx_tdest),
 {% endif %}
 {% if cnfg.en_rdma %}
         .o_wrapper_sink_counter(wrapper_sink_counter),

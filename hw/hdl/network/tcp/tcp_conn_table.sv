@@ -51,6 +51,7 @@ module tcp_conn_table (
     metaIntf.s                                      s_notify_opened,
     output logic [TCP_PORT_ORDER-1:0]               port_addr,
     input  logic [TCP_PORT_TABLE_DATA_BITS-1:0]     rsid_in,
+    input  logic [13:0]                             route_id_in,
 
     metaIntf.s                                      s_rx_meta,
     metaIntf.m                                      m_rx_meta_r,
@@ -60,7 +61,11 @@ module tcp_conn_table (
     metaIntf.s                                      s_tx_meta_r,
     metaIntf.m                                      m_tx_meta,
     AXI4S.s                                         s_axis_tx_r,
-    AXI4S.m                                         m_axis_tx
+    AXI4S.m                                         m_axis_tx,
+
+  
+    output logic [13:0]                             tx_route_id,
+    output logic                                    tx_route_id_valid
 );
 
 
@@ -77,6 +82,7 @@ logic [PID_BITS-1:0] pid_C, pid_N;
 logic [DEST_BITS-1:0] dest_C, dest_N;
 logic [TCP_IP_PORT_BITS-1:0] ip_port_C, ip_port_N;
 logic [TCP_IP_ADDRESS_BITS-1:0] ip_address_C, ip_address_N;
+logic [13:0] route_id_C, route_id_N;
 
 // Tables
 logic [1:0] rx_wr;
@@ -93,6 +99,14 @@ logic [TCP_SID_BITS-1:0] tx_data;
 logic [TCP_SID_BITS-1:0] tx_data_out;
 logic [TCP_SID_BITS-1:0] tx_data_sid;
 
+// Route ID table signals (POS VIU support)
+logic [1:0] route_wr;
+logic [TCP_SID_BITS-1:0] route_addr;
+logic route_en;
+logic [13:0] route_data;
+logic [13:0] route_data_out;
+logic [13:0] route_id_lookup;
+
 // REG
 always_ff @( posedge aclk ) begin : REG_LISTEN
     if(aresetn == 1'b0) begin
@@ -105,7 +119,8 @@ always_ff @( posedge aclk ) begin : REG_LISTEN
         dest_C <= 'X;
         ip_port_C <= 'X;
         ip_address_C <= 'X;
-    else begin
+        route_id_C <= '0;
+    end else begin
         state_C <= state_N;
 
         port_C <= port_N;
@@ -115,6 +130,7 @@ always_ff @( posedge aclk ) begin : REG_LISTEN
         dest_C <= dest_N;
         ip_port_C <= ip_port_N;
         ip_address_C <= ip_address_N;
+        route_id_C <= route_id_N;
     end
 end
 
@@ -165,6 +181,7 @@ always_comb begin : DP
     dest_N = dest_C;
     ip_port_N = ip_port_C;
     ip_address_N = ip_address_C;
+    route_id_N = route_id_C;
 
     s_notify_opened.ready = 1'b0;
 
@@ -194,6 +211,10 @@ always_comb begin : DP
     tx_data = 0;
     tx_wr = 0;
 
+  
+    route_addr = 0;
+    route_data = 0;
+    route_wr = 0;
 
     port_addr = port_C[TCP_PORT_ORDER-1:0];
 
@@ -213,6 +234,7 @@ always_comb begin : DP
                 dest_N = s_open_req.data.dest;
                 ip_port_N = s_open_req.data.ip_port;
                 ip_address_N = s_open_req.data.ip_address;
+                route_id_N = s_open_req.data.route_id;
             end
         end
 
@@ -223,9 +245,14 @@ always_comb begin : DP
             tx_addr = rsid_in[DEST_BITS+:PID_BITS+DEST_BITS];
             tx_data = sid_C[TCP_SID_BITS];
 
+          
+            route_addr = sid_C[TCP_SID_BITS];
+            route_data = route_id_in;
+
             if(rsid_in[TCP_RSESSION_BITS-1]) begin
                 tx_wr = ~0;
                 rx_wr = ~0;
+                route_wr = ~0;
             end
         end
 
@@ -248,6 +275,11 @@ always_comb begin : DP
 
             tx_addr = {vfid_C, pid_C};
             tx_data = sid_C[TCP_SID_BITS];
+
+          
+            route_addr = sid_C[TCP_SID_BITS];
+            route_data = route_id_C;
+            route_wr = ~0;
 
             tx_wr = ~0;
             rx_wr = ~0;
@@ -298,6 +330,22 @@ ram_tp_nc #(
     .b_data_out(tx_sid)
 );
 
+// Route ID table (POS VIU) - indexed by SID, stores route_id for vIO Switch routing
+ram_tp_nc #(
+    .ADDR_BITS(TCP_SID_BITS),
+    .DATA_BITS(14)
+) inst_route_table (
+    .clk(aclk),
+    .a_en(1'b1),
+    .a_we(route_wr),
+    .a_addr(route_addr),
+    .b_en(route_en),
+    .b_addr(tx_sid),  // Lookup by SID from TX table output
+    .a_data_in(route_data),
+    .a_data_out(route_data_out),
+    .b_data_out(route_id_lookup)
+);
+
 metaIntf #(.STYPE(tcp_meta_r_t)) rx_meta_q (.*);
 metaIntf #(.STYPE(tcp_meta_t)) tx_meta_q (.*);
 
@@ -333,6 +381,23 @@ queue_meta #(.QDEPTH(16)) inst_tx_q (.aclk(aclk), .aresetn(aresetn), .s_meta(tx_
 
 assign rx_en = rx_meta_q_ready;
 assign tx_en = tx_meta_q_ready;
+assign route_en = tx_en;  // Route lookup happens when TX meta is ready
+
+// Route ID output for VIU (POS) - registered output
+always_ff @(posedge aclk) begin
+    if (~aresetn) begin
+        tx_route_id <= '0;
+        tx_route_id_valid <= 1'b0;
+    end else begin
+        // Output route_id when TX meta is valid and processed
+        if (tx_meta_q.valid && tx_meta_q.ready) begin
+            tx_route_id <= route_id_lookup;
+            tx_route_id_valid <= 1'b1;
+        end else begin
+            tx_route_id_valid <= 1'b0;
+        end
+    end
+end
 
 `AXIS_ASSIGN(s_axis_rx, m_axis_rx_r)
 `AXIS_ASSIGN(s_axis_tx_r, m_axis_tx)

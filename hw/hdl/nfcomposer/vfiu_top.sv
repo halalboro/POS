@@ -105,10 +105,7 @@ module vfiu_top #(
     // Routing capability control
     input logic [13:0]                           route_ctrl,
     input logic [13:0]                           route_in,
-    output logic [13:0]                          route_out,
-
-    input logic [1:0]                           port_in,
-    output logic [1:0]                          port_out
+    output logic [13:0]                          route_out
 );
 
     // Host descriptors
@@ -196,8 +193,8 @@ module vfiu_top #(
     // Host request
     `META_ASSIGN(host_sq, host_sq_int)
 
-    // Bypass - now routed through gate_send for security validation
-    // Original direct assignment removed - see gate_send instantiation below
+    // Bypass - now routed through gateway_send for security validation
+    // Original direct assignment removed - see gateway_send instantiation below
     // `META_ASSIGN(bpss_rd_req_int, bpss_rd_req)
     // `META_ASSIGN(bpss_wr_req_int, bpss_wr_req)
 
@@ -282,7 +279,7 @@ module vfiu_top #(
     metaIntf #(.STYPE(req_t)) local_cred_wr_host ();
     metaIntf #(.STYPE(req_t)) local_cred_wr_card ();
 
-    // Filtered requests after security validation (gate_send output)
+    // Filtered requests after security validation (gateway_send output)
     metaIntf #(.STYPE(req_t)) filtered_rd_req ();
     metaIntf #(.STYPE(req_t)) filtered_wr_req ();
 
@@ -316,25 +313,24 @@ module vfiu_top #(
         .m_axis(axis_dtu_src_int)
     );
 
-    // Gate send: Security validation with endpoint checking
-    // Requests pass through gate_send which validates against configured endpoints
-    // Only authorized requests are forwarded to the bypass interface
-    gate_send #(
-        .N_DESTS(N_STRM_AXI),
+    // ========================================================================================
+    // Memory Gateway (gate_mem): Security validation with endpoint checking
+    // ========================================================================================
+    // Requests pass through gate_mem which validates against configured memory endpoints.
+    // Only authorized requests are forwarded to the bypass interface.
+    gate_mem #(
         .N_ENDPOINTS(N_ENDPOINTS)
-    ) inst_gate_send (
+    ) inst_gate_mem (
         .aclk(aclk),
         .aresetn(aresetn),
-        // Routing capability interface
-        .route_ctrl(route_ctrl),
-        .ul_port_in(port_in),
-        .route_out(route_out),
         // Memory endpoint control for security validation
-        .mem_ctrl(mem_ctrl),
+        .ep_ctrl(mem_ctrl),
+      
+        .route_id(route_ctrl),
         // Input: unfiltered requests from credit modules
         .s_rd_req(local_cred_rd_host),
         .s_wr_req(local_cred_wr_host),
-        // Output: filtered requests (only authorized)
+        // Output: filtered requests (only authorized) with route_id injected
         .m_rd_req(filtered_rd_req),
         .m_wr_req(filtered_wr_req)
     );
@@ -347,14 +343,29 @@ module vfiu_top #(
     `META_ASSIGN(bpss_rd_req_int, bpss_rd_req)
     `META_ASSIGN(bpss_wr_req_int, bpss_wr_req)
 
-    gate_recv #(
+    // ========================================================================================
+    // Gateway Send (gate_send): Routing capability for vIO Switch
+    // ========================================================================================
+    // Sets the route_out signal for the vIO Switch based on route_ctrl configuration.
+    gateway_send #(
         .N_DESTS(N_STRM_AXI)
-    ) inst_gate_recv (
+    ) inst_gateway_send (
         .aclk(aclk),
         .aresetn(aresetn),
         .route_ctrl(route_ctrl),
-        .route_in(route_in),
-        .ul_port_out(port_out)
+        .route_out(route_out)
+    );
+
+    // ========================================================================================
+    // Gateway Recv (gate_recv): Validates incoming routes from vIO Switch
+    // ========================================================================================
+    gateway_recv #(
+        .N_DESTS(N_STRM_AXI)
+    ) inst_gateway_recv (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .route_ctrl(route_ctrl),
+        .route_in(route_in)
     );
 
     //

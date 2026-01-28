@@ -39,13 +39,50 @@ import lynxTypes::*;
  * VLAN-based routing capabilities. It validates that packets are routed according
  * to configured permissions (similar to vFIU but without memory bounds checking).
  *
- * TX Path: Network Stack -> VIU (add VLAN tag with route_out) -> CMAC
- * RX Path: CMAC -> VIU (extract VLAN tag -> route_in -> validate) -> Network Stack
+ * DEPLOYMENT MODELS:
+ *
+ *   1. Multi-FPGA Model: vFPGA-to-vFPGA communication across FPGAs
+ *      - VLAN tags carry node_id + vfpga_id for both source and destination
+ *      - Both TX and RX paths use VLAN tagging
+ *      - Enables isolation between vFPGAs on different physical FPGAs
+ *      - Supports up to 4 nodes × 16 vFPGAs = 64 total vFPGAs
+ *
+ *   2. SmartNIC Model: External clients communicating with vFPGAs
+ *      - TX: vFPGA -> external (src_node+vfpga filled, dst_node+vfpga = 0)
+ *      - RX: external -> vFPGA (packets may be untagged, all IDs = 0)
+ *      - Supports traditional NIC use cases with FPGA acceleration
+ *
+ * TX Path: vIO Switch -> Network Stack -> VIU (add VLAN tag) -> CMAC
+ *   - s_axis_tx_tdest carries route_id from vIO Switch
+ *   - gateway_tx validates the route and provides route_out for VLAN encoding
+ *   - vlan_tagger encodes route_out into 802.1Q VLAN tag
+ *
+ * RX Path: CMAC -> VIU (extract VLAN tag -> validate) -> Network Stack
+ *   - vlan_untagger decodes VLAN tag to route_id (14-bit)
+ *   - gateway_rx validates source and determines destination vFPGA
+ *   - route_id is output on m_axis_rx_tdest, synchronized with packet data
+ *   - This tdest field flows through network stacks to vIO Switch for routing
+ *   - vIO Switch RX Selector uses tdest (route_id) to forward packet to correct vFPGA
+ *
+ * Route ID Format (14-bit):
+ *   [13:12] src_node_id  (2 bits - source physical FPGA node, 0-3)
+ *   [11:8]  src_vfpga_id (4 bits - source vFPGA on that node, 0-15)
+ *   [7:6]   dst_node_id  (2 bits - destination physical FPGA node, 0-3)
+ *   [5:2]   dst_vfpga_id (4 bits - destination vFPGA on that node, 0-15)
+ *   [1:0]   reserved
+ *
+ * VLAN ID Format (12-bit, within 802.1Q tag):
+ *   [11:10] src_node_id  (2 bits - source node, 0-3)
+ *   [9:6]   src_vfpga_id (4 bits - source vFPGA, 0-15)
+ *   [5:4]   dst_node_id  (2 bits - destination node, 0-3)
+ *   [3:0]   dst_vfpga_id (4 bits - destination vFPGA, 0-15)
+ *
+ * Node ID 0 + vFPGA ID 0 = external network (outside closed VLAN network)
  *
  * The routing capability format is the same as vFIU since both feed the same
  * vIO_switch for routing to the correct vFPGA region.
  *
- *  @param N_ID  Number of vFPGA regions
+ *  @param N_ID  Number of vFPGA regions per node
  */
 module viu_top #(
     parameter integer N_ID = N_REGIONS
@@ -56,28 +93,20 @@ module viu_top #(
     // ============================================================================
     // Routing Capability Interface
     // ============================================================================
-    // Format: [13:10] reserved, [9:6] sender_ul_id, [5:2] reserved, [1:0] port_id
+    // Format: [13:10] reserved, [9:6] sender_id, [5:2] receiver_id, [1:0] flags
     // Same format as vFIU since both feed vIO_switch
     input  logic [13:0]                         route_ctrl,
-
-    // Port selection for TX path
-    input  logic [1:0]                          port_in,
-
-    // Route output from gate_send (used for VLAN tag insertion)
-    output logic [13:0]                         route_out,
-
-    // Port output from gate_recv (destination vFPGA for RX packets)
-    output logic [1:0]                          port_out,
 
     // ============================================================================
     // AXI4-Stream Network Interfaces (TX path - to CMAC)
     // ============================================================================
-    // From network stack (untagged packets)
+    // From network stack (untagged packets with route_id in tdest)
     input  logic [AXI_NET_BITS-1:0]             s_axis_tx_tdata,
     input  logic [AXI_NET_BITS/8-1:0]           s_axis_tx_tkeep,
     input  logic                                s_axis_tx_tlast,
     output logic                                s_axis_tx_tready,
     input  logic                                s_axis_tx_tvalid,
+    input  logic [13:0]                         s_axis_tx_tdest,
 
     // To CMAC (VLAN tagged packets)
     output logic [AXI_NET_BITS-1:0]             m_axis_tx_tdata,
@@ -96,12 +125,13 @@ module viu_top #(
     output logic                                s_axis_rx_tready,
     input  logic                                s_axis_rx_tvalid,
 
-    // To network stack (untagged packets)
+    // To network stack (untagged packets with synchronized route_id in tdest)
     output logic [AXI_NET_BITS-1:0]             m_axis_rx_tdata,
     output logic [AXI_NET_BITS/8-1:0]           m_axis_rx_tkeep,
     output logic                                m_axis_rx_tlast,
     input  logic                                m_axis_rx_tready,
-    output logic                                m_axis_rx_tvalid
+    output logic                                m_axis_rx_tvalid,
+    output logic [13:0]                         m_axis_rx_tdest 
 );
 
     // ============================================================================
@@ -112,43 +142,47 @@ module viu_top #(
     logic [13:0] extracted_route;
     logic        extracted_route_valid;
 
-    // Intermediate AXI-Stream for RX path (after VLAN extraction, before validation)
+    // Route for TX path VLAN tag insertion (from gateway_tx)
+    logic [13:0] tx_route_out;
+
+    // AXI-Stream for RX path (after VLAN extraction)
     logic [AXI_NET_BITS-1:0]     axis_rx_untagged_tdata;
     logic [AXI_NET_BITS/8-1:0]   axis_rx_untagged_tkeep;
     logic                        axis_rx_untagged_tlast;
     logic                        axis_rx_untagged_tready;
     logic                        axis_rx_untagged_tvalid;
+    logic [13:0]                 axis_rx_untagged_tdest;
 
     // ============================================================================
-    // Gate Send - TX path routing capability validation
+    // Gateway TX - TX path routing capability validation
     // ============================================================================
-    // Validates that the sending port has permission to transmit based on
-    // routing capabilities configured by the host. Provides route_out which
-    // is encoded into the VLAN tag by vlan_tag_insert.
+    // Validates outgoing packets based on route_id from vIO Switch (s_axis_tx_tdest).
+    // Provides route_out (sender_id, receiver_id) to be encoded in VLAN tag.
+    // The sender_id is enforced to be this vFPGA's ID (configured by host).
 
-    gate_send #(
+    gateway_tx #(
         .N_DESTS(N_ID)
-    ) inst_gate_send (
+    ) inst_gateway_tx (
         .aclk(aclk),
         .aresetn(aresetn),
         .route_ctrl(route_ctrl),
-        .ul_port_in(port_in),
-        .route_out(route_out)
+        .route_in(s_axis_tx_tdest),      // Route from vIO Switch (packet's destination)
+        .route_out(tx_route_out)          // Route for VLAN tag encoding
     );
 
     // ============================================================================
     // TX Path: VLAN Tag Insertion
     // ============================================================================
     // Insert 802.1Q VLAN tag into outgoing packets.
-    // The VLAN tag encodes route_out (sender_ul_id, port_id) for the receiver.
+    // The VLAN tag encodes tx_route_out (sender_id, receiver_id) from gateway_tx.
 
-    vlan_tag_insert #(
+    vlan_tagger #(
         .DATA_WIDTH(AXI_NET_BITS)
-    ) inst_vlan_tag_insert (
+    ) inst_vlan_tagger (
         .aclk(aclk),
         .aresetn(aresetn),
-        // Routing info to encode in VLAN tag
-        .route_out(route_out),
+        // Routing info to encode in VLAN tag (from gateway_tx)
+        .route_out(tx_route_out),
         // Input: untagged packets from network stack
         .s_axis_tdata(s_axis_tx_tdata),
         .s_axis_tkeep(s_axis_tx_tkeep),
@@ -167,14 +201,14 @@ module viu_top #(
     // RX Path: VLAN Tag Extraction
     // ============================================================================
     // Extract and remove 802.1Q VLAN tag from incoming packets.
-    // The extracted routing info is passed to gate_recv for validation.
+    // The extracted routing info is passed to gateway_rx for validation.
 
-    vlan_tag_extract #(
+    vlan_untagger #(
         .DATA_WIDTH(AXI_NET_BITS)
-    ) inst_vlan_tag_extract (
+    ) inst_vlan_untagger (
         .aclk(aclk),
         .aresetn(aresetn),
-        // Extracted routing info for gate_recv
+        // Extracted routing info for gateway_rx (sideband)
         .route_out(extracted_route),
         .route_valid(extracted_route_valid),
         // Input: VLAN tagged packets from CMAC
@@ -183,43 +217,46 @@ module viu_top #(
         .s_axis_tlast(s_axis_rx_tlast),
         .s_axis_tready(s_axis_rx_tready),
         .s_axis_tvalid(s_axis_rx_tvalid),
-        // Output: untagged packets
+        // Output: untagged packets with synchronized route_id in tdest
         .m_axis_tdata(axis_rx_untagged_tdata),
         .m_axis_tkeep(axis_rx_untagged_tkeep),
         .m_axis_tlast(axis_rx_untagged_tlast),
         .m_axis_tready(axis_rx_untagged_tready),
-        .m_axis_tvalid(axis_rx_untagged_tvalid)
+        .m_axis_tvalid(axis_rx_untagged_tvalid),
+        .m_axis_tdest(axis_rx_untagged_tdest)
     );
 
     // ============================================================================
-    // Gate Recv - RX path routing capability validation
+    // Gateway RX - RX path routing capability validation
     // ============================================================================
     // Validates that incoming packets (based on extracted VLAN tag) match the
     // expected routing capability for the destination port.
-    // Uses the extracted_route from vlan_tag_extract.
+    // Uses the extracted_route from vlan_untagger.
+    //
+    // The route_id (extracted from VLAN tag) flows through this gateway and
+    // is used by the vIO Switch RX Selector to forward packets to the correct vFPGA.
 
-    gate_recv #(
+    gateway_rx #(
         .N_DESTS(N_ID)
-    ) inst_gate_recv (
+    ) inst_gateway_rx (
         .aclk(aclk),
         .aresetn(aresetn),
         .route_ctrl(route_ctrl),
-        .route_in(extracted_route),
-        .ul_port_out(port_out)
+        .route_in(extracted_route)
     );
 
     // ============================================================================
     // RX Path Output
     // ============================================================================
-    // Forward untagged packets to network stack.
-    // TODO: Add filtering based on gate_recv validation result if needed.
-    // Currently, gate_recv provides port_out for routing decisions but doesn't
-    // block invalid packets. For security, you may want to add a drop mechanism.
+    // Forward untagged packets to network stack along with the synchronized route_id.
+    // The route_id is carried in m_axis_rx_tdest, traveling with the packet data
+    // through the network protocol stacks (TCP/IP, RDMA, Bypass) to vIO Switch.
 
     assign m_axis_rx_tdata  = axis_rx_untagged_tdata;
     assign m_axis_rx_tkeep  = axis_rx_untagged_tkeep;
     assign m_axis_rx_tlast  = axis_rx_untagged_tlast;
     assign m_axis_rx_tvalid = axis_rx_untagged_tvalid;
+    assign m_axis_rx_tdest  = axis_rx_untagged_tdest;  // Synchronized route_id for vIO Switch
     assign axis_rx_untagged_tready = m_axis_rx_tready;
 
 endmodule

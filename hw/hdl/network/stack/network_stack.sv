@@ -73,6 +73,9 @@ module network_stack #(
     AXI4S.s                     s_axis_rdma_mem_rd,
     AXI4S.m                     m_axis_rdma_mem_wr,
 
+    output logic [13:0]         rdma_tx_route_id,
+    output logic                rdma_tx_route_id_valid,
+
 `endif
 
 `ifdef EN_TCP
@@ -90,7 +93,7 @@ module network_stack #(
     metaIntf.m                  m_tcp_rx_meta,
     metaIntf.s                  s_tcp_tx_meta,
     metaIntf.m                  m_tcp_tx_stat,
-    
+
     AXI4S.s                     s_axis_tcp_tx,
     AXI4S.m                     m_axis_tcp_rx,
 
@@ -101,7 +104,21 @@ module network_stack #(
     metaIntf.s                  s_tcp_mem_wr_sts,
     AXI4S.s                     s_axis_tcp_mem_rd,
     AXI4S.m                     m_axis_tcp_mem_wr,
-`endif    
+`endif
+
+`ifdef EN_BYPASS
+    /* Bypass interface (independent from RDMA, uses UDP path) */
+    metaIntf.s                  s_bypass_qp_interface,
+    metaIntf.s                  s_bypass_conn_interface,
+
+    metaIntf.s                  s_bypass_sq,
+    metaIntf.m                  m_bypass_ack,
+    metaIntf.m                  m_bypass_rd_req,
+    metaIntf.m                  m_bypass_wr_req,
+    AXI4S.s                     s_axis_bypass_rd_req,
+    AXI4S.s                     s_axis_bypass_rd_rsp,
+    AXI4S.m                     m_axis_bypass_wr,
+`endif
 
 `ifdef EN_SNIFFER
     AXI4S.m                     m_rx_sniffer,
@@ -110,7 +127,7 @@ module network_stack #(
 `endif
 
     /* Network streams */
-    AXI4S.s                     s_axis_net,
+    AXI4SR.s                    s_axis_net,
     AXI4S.m                     m_axis_net
 );
 
@@ -228,6 +245,23 @@ logic       regRetransCount_valid;
 
 logic       session_count_valid;
 logic[15:0] session_count_data;
+
+// Capture route_id (tdest) from first beat - IP handler strips sideband signals
+logic [13:0] rx_route_id_captured;
+logic rx_route_id_in_packet;
+
+always_ff @(posedge nclk) begin
+    if (~nresetn_r) begin
+        rx_route_id_captured <= '0;
+        rx_route_id_in_packet <= 1'b0;
+    end else begin
+        if (s_axis_net.tvalid && s_axis_net.tready) begin
+            if (!rx_route_id_in_packet)
+                rx_route_id_captured <= s_axis_net.tdest;
+            rx_route_id_in_packet <= !s_axis_net.tlast;
+        end
+    end
+end
 
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
@@ -557,9 +591,11 @@ axis_64_to_512_converter icmp_out_data_converter (
     .m_axis_tdest()
 );
 
-// UDP
+// UDP - used by bypass stack when EN_BYPASS enabled
 axis_reg inst_slice_out_1 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(axis_iph_to_udp_slice), .m_axis(axis_udp_slice_to_udp));
+`ifndef EN_BYPASS
 assign axis_udp_slice_to_udp.tready = 1'b1;
+`endif
 
 // TCP
 axis_reg_array inst_slice_out_2 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(axis_iph_to_toe_slice), .m_axis(axis_toe_slice_to_toe));
@@ -578,9 +614,11 @@ assign axis_roce_slice_to_roce.tready = 1'b1;
  * Merge TX
  */
 
-// UDP
+// UDP - used by bypass stack when EN_BYPASS enabled
 axis_reg_array inst_slice_out_4 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(axis_udp_to_udp_slice), .m_axis(axis_udp_slice_to_merge));
+`ifndef EN_BYPASS
 assign axis_udp_to_udp_slice.tvalid = 1'b0;
+`endif
 
 // TCP
 axis_reg_array inst_slice_out_5 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(axis_toe_to_toe_slice), .m_axis(axis_toe_slice_to_merge));
@@ -825,16 +863,16 @@ arp_server_subnet_ip arp_server_inst(
  * RoCE stack
  */
 
-roce_stack #(
-    .BYPASS_MODE(0)
-) inst_roce_stack (
+roce_stack inst_roce_stack (
     .nclk(nclk), // input aclk
     .nresetn(nresetn_r), // input aresetn
 
-    // IPv4
+    // Network interface
     .s_axis_rx(axis_roce_slice_to_roce),
     .m_axis_tx(axis_roce_to_roce_slice),
-    
+
+    .rx_route_id(rx_route_id_captured),
+
     // Control
     .s_rdma_qp_interface(s_rdma_qp_interface),
     .s_rdma_conn_interface(s_rdma_conn_interface),
@@ -847,7 +885,7 @@ roce_stack #(
     .s_axis_rdma_rd_req(s_axis_rdma_rd_req),
     .s_axis_rdma_rd_rsp(s_axis_rdma_rd_rsp),
     .m_axis_rdma_wr(m_axis_rdma_wr),
-    
+
     // IP
     //.local_ip_address_V(link_local_ipv6_address), // Use IPv6 addr
     .local_ip_address(iph_ip_address), //Use IPv4 addr
@@ -859,6 +897,9 @@ roce_stack #(
     .s_rdma_mem_wr_sts(s_rdma_mem_wr_sts),
     .s_axis_rdma_mem_rd(s_axis_rdma_mem_rd),
     .m_axis_rdma_mem_wr(m_axis_rdma_mem_wr),
+
+    .tx_route_id(rdma_tx_route_id),
+    .tx_route_id_valid(rdma_tx_route_id_valid),
 
     // Debug
     .ibv_rx_pkg_count_valid(regIbvRxPkgCount_valid),
@@ -908,6 +949,37 @@ ila_roce inst_ila_roce (
     .probe26(m_axis_net.tready),
     .probe27(m_axis_net.tdata), // 512
     .probe28(m_axis_net.tlast)
+);
+
+`endif
+
+// BYPASS (UDP path, coexists with RoCE)
+`ifdef EN_BYPASS
+
+logic regBypassRxPkgCount_valid;
+logic [31:0] regBypassRxPkgCount;
+logic regBypassTxPkgCount_valid;
+logic [31:0] regBypassTxPkgCount;
+
+bypass_stack inst_bypass_stack (
+    .nclk(nclk),
+    .nresetn(nresetn_r),
+    .s_axis_rx(axis_udp_slice_to_udp),
+    .m_axis_tx(axis_udp_to_udp_slice),
+    .rx_route_id(rx_route_id_captured),
+    .s_rdma_qp_interface(s_bypass_qp_interface),
+    .s_rdma_conn_interface(s_bypass_conn_interface),
+    .s_rdma_sq(s_bypass_sq),
+    .m_rdma_ack(m_bypass_ack),
+    .m_rdma_rd_req(m_bypass_rd_req),
+    .m_rdma_wr_req(m_bypass_wr_req),
+    .s_axis_rdma_rd_req(s_axis_bypass_rd_req),
+    .s_axis_rdma_rd_rsp(s_axis_bypass_rd_rsp),
+    .m_axis_rdma_wr(m_axis_bypass_wr),
+    .ibv_rx_pkg_count_valid(regBypassRxPkgCount_valid),
+    .ibv_rx_pkg_count_data(regBypassRxPkgCount),
+    .ibv_tx_pkg_count_valid(regBypassTxPkgCount_valid),
+    .ibv_tx_pkg_count_data(regBypassTxPkgCount)
 );
 
 `endif

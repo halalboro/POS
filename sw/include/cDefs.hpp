@@ -380,12 +380,28 @@ enum class CnfgLegRegs : uint32_t {
 };
 
 /**
- * Supported ops for RDMA - READ and WRITE 
+ * Supported ops for RDMA - READ and WRITE
  */
-enum ibvOpcode { 
-    IBV_WR_RDMA_READ, 
-    IBV_WR_RDMA_WRITE, 
+enum ibvOpcode {
+    IBV_WR_RDMA_READ,
+    IBV_WR_RDMA_WRITE,
     IBV_WR_SEND
+};
+
+/**
+ * Router control registers for P4 table management
+ * Used by POSRuntimeEngine to program routing table entries
+ */
+enum class RouterRegs : uint32_t {
+    CTRL_REG = 0,           // Control register (write trigger)
+    STATUS_REG = 1,         // Status register (ready bit)
+    ADDR_REG = 2,           // Table entry address/index
+    PREFIX_REG = 3,         // IPv4 prefix
+    PREFIX_LEN_REG = 4,     // Prefix length (0-32)
+    ENTRY_CTRL_REG = 5,     // Entry control (valid bit + action code)
+    DST_MAC_LOW_REG = 6,    // Destination MAC low 32 bits
+    DST_MAC_HIGH_REG = 7,   // Destination MAC high 16 bits
+    EGRESS_PORT_REG = 8     // Egress port number
 };
 
 // ======-------------------------------------------------------------------------------
@@ -661,7 +677,7 @@ struct ibvQ {
 };
 
 /**
- * Queue pair - combination of a local and a remote ibvQ        
+ * Queue pair - combination of a local and a remote ibvQ
  */
 struct ibvQp {
 public:
@@ -669,6 +685,41 @@ public:
     ibvQ remote;
 
     ibvQp() {}
+};
+
+/**
+ * Named RDMA connection for multi-QP support
+ * Stores connection metadata along with the QP
+ */
+struct ibvConnection {
+    std::string name;           // Connection identifier (e.g., "to_rose", "from_amy")
+    uint16_t qpn;               // Queue Pair Number (index into hardware QP table)
+    std::unique_ptr<ibvQp> qp;  // The actual queue pair
+    int connfd = -1;            // TCP socket for out-of-band communication
+    bool is_connected = false;  // Connection state
+
+    ibvConnection() : qp(std::make_unique<ibvQp>()) {}
+    ibvConnection(const std::string& n, uint16_t q) : name(n), qpn(q), qp(std::make_unique<ibvQp>()) {}
+};
+
+/**
+ * RDMA scatter-gather entry with explicit connection specification
+ * Used for multi-QP operations where the target connection must be specified
+ */
+struct rdmaSgConn {
+    // Connection identifier
+    std::string connection;     // Name of the connection to use
+
+    // Local
+    uint64_t local_offs = { 0 };
+    uint32_t local_stream = { strmHost };
+    uint32_t local_dest = { 0 };
+
+    // Remote
+    uint64_t remote_offs = { 0 };
+    uint32_t remote_dest = { 0 };
+
+    uint32_t len = { 0 };
 };
 
 /**

@@ -34,21 +34,22 @@ import lynxTypes::*;
 /**
  * @brief   RDMA arbitration
  *
- * Arbitration layer between all present user regions
+ * Arbitration layer between all present user regions.
+ * Network-side uses AXI4SR with tid/tdest for vIO Switch routing.
  */
 module rdma_arbiter (
     input  wire             aclk,
     input  wire             aresetn,
 
-    // Network
+    // Network (AXI4SR with routing info for vIO Switch)
     metaIntf.m              m_rdma_sq_net,
     metaIntf.s              s_rdma_cq_net,
 
     metaIntf.s              s_rdma_rq_rd_net,
     metaIntf.s              s_rdma_rq_wr_net,
-    AXI4S.m                 m_axis_rdma_rd_req_net,
-    AXI4S.m                 m_axis_rdma_rd_rsp_net,
-    AXI4S.s                 s_axis_rdma_wr_net,
+    AXI4SR.m                m_axis_rdma_rd_req_net,  // TX to network (read request data)
+    AXI4SR.m                m_axis_rdma_rd_rsp_net,  // TX to network (read response data)
+    AXI4SR.s                s_axis_rdma_wr_net,      // RX from network (write data)
 
     // User
     metaIntf.s              s_rdma_sq_user [N_REGIONS],
@@ -63,6 +64,17 @@ module rdma_arbiter (
 );
 
 //
+// Internal AXI4S signals (for internal modules that use AXI4S)
+//
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_rd_req_int ();
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_rd_rsp_int ();
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_wr_int ();
+
+// vfid signals for routing
+logic [N_REGIONS_BITS-1:0] vfid_tx_int;
+logic [N_REGIONS_BITS-1:0] vfid_rx_int;
+
+//
 // Arbitration
 //
 
@@ -73,8 +85,8 @@ rdma_meta_tx_arbiter inst_rdma_req_host_arbiter (
     .s_meta(s_rdma_sq_user),
     .m_meta(m_rdma_sq_net),
     .s_axis_rd(s_axis_rdma_rd_req_user),
-    .m_axis_rd(m_axis_rdma_rd_req_net),
-    .vfid()
+    .m_axis_rd(axis_rdma_rd_req_int),
+    .vfid(vfid_tx_int)
 );
 
 // Arbitration ACKs
@@ -86,7 +98,7 @@ rdma_meta_rx_arbiter inst_rdma_ack_arbiter (
     .s_meta(s_rdma_cq_net),
     .m_meta_user(rdma_cq_user),
     .m_meta_host(m_rdma_host_cq_user),
-    .vfid()
+    .vfid()  // vfid extracted from CQ metadata internally
 );
 
 for(genvar i = 0; i < N_REGIONS; i++) begin
@@ -107,7 +119,7 @@ rdma_mux_cmd_rd inst_mux_cmd_rd (
     .s_req(s_rdma_rq_rd_net),
     .m_req(m_rdma_rq_rd_user),
     .s_axis_rd(s_axis_rdma_rd_rsp_user),
-    .m_axis_rd(m_axis_rdma_rd_rsp_net)
+    .m_axis_rd(axis_rdma_rd_rsp_int)
 );
 
 // Write command crossing
@@ -116,9 +128,41 @@ rdma_mux_cmd_wr inst_mux_cmd_wr (
     .aresetn(aresetn),
     .s_req(s_rdma_rq_wr_net),
     .m_req(m_rdma_rq_wr_user),
-    .s_axis_wr(s_axis_rdma_wr_net),
+    .s_axis_wr(axis_rdma_wr_int),
     .m_axis_wr(m_axis_rdma_wr_user),
     .m_wr_rdy()
 );
+
+// Extract vfid from RX write request metadata for routing
+assign vfid_rx_int = s_rdma_rq_wr_net.data.vfid;
+
+//
+// AXI4S to AXI4SR conversion (add tid/tdest for vIO Switch routing)
+//
+
+// TX Read Request: AXI4S -> AXI4SR (set tdest for vIO Switch)
+assign m_axis_rdma_rd_req_net.tvalid = axis_rdma_rd_req_int.tvalid;
+assign m_axis_rdma_rd_req_net.tdata  = axis_rdma_rd_req_int.tdata;
+assign m_axis_rdma_rd_req_net.tkeep  = axis_rdma_rd_req_int.tkeep;
+assign m_axis_rdma_rd_req_net.tlast  = axis_rdma_rd_req_int.tlast;
+assign m_axis_rdma_rd_req_net.tid    = vfid_tx_int;
+assign m_axis_rdma_rd_req_net.tdest  = '0;  // Network stack destination (external)
+assign axis_rdma_rd_req_int.tready   = m_axis_rdma_rd_req_net.tready;
+
+// TX Read Response: AXI4S -> AXI4SR (set tdest for vIO Switch)
+assign m_axis_rdma_rd_rsp_net.tvalid = axis_rdma_rd_rsp_int.tvalid;
+assign m_axis_rdma_rd_rsp_net.tdata  = axis_rdma_rd_rsp_int.tdata;
+assign m_axis_rdma_rd_rsp_net.tkeep  = axis_rdma_rd_rsp_int.tkeep;
+assign m_axis_rdma_rd_rsp_net.tlast  = axis_rdma_rd_rsp_int.tlast;
+assign m_axis_rdma_rd_rsp_net.tid    = s_rdma_rq_rd_net.data.vfid;  // Source vfid from read request
+assign m_axis_rdma_rd_rsp_net.tdest  = '0;  // Network stack destination (external)
+assign axis_rdma_rd_rsp_int.tready   = m_axis_rdma_rd_rsp_net.tready;
+
+// RX Write Data: AXI4SR -> AXI4S (strip tid/tdest, use for internal routing)
+assign axis_rdma_wr_int.tvalid = s_axis_rdma_wr_net.tvalid;
+assign axis_rdma_wr_int.tdata  = s_axis_rdma_wr_net.tdata;
+assign axis_rdma_wr_int.tkeep  = s_axis_rdma_wr_net.tkeep;
+assign axis_rdma_wr_int.tlast  = s_axis_rdma_wr_net.tlast;
+assign s_axis_rdma_wr_net.tready = axis_rdma_wr_int.tready;
 
 endmodule

@@ -101,7 +101,11 @@ module cnfg_slave_avx #(
     // Control
     output logic                usr_irq,
 
-    output logic [131-1:0]      ep_ctrl, 
+    // Memory endpoint control (99 bits per endpoint)
+    output logic [98:0]         ep_ctrl,
+
+  
+    output logic [13:0]         route_id,
 
     // IO Control
     output logic [13:0]          io_ctrl
@@ -1067,7 +1071,10 @@ assign usr_irq = irq_pending;
 
 // IO control
 assign io_ctrl = slv_reg[IO_SWITCH_REG][13:0];
-assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][131-1:0];
+assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][98:0];  // 99-bit endpoint control
+// Route ID uses bits [13:0] from the same IO_SWITCH_REG, since route_id and io_ctrl
+// can share the same register (both are 14-bit and serve vIO Switch control)
+assign route_id = slv_reg[IO_SWITCH_REG][27:14];  // Upper bits of IO_SWITCH_REG for route_id
 (* mark_debug = "true" *) logic [OFFS_BITS-1:0] req_1_offs, req_2_offs;
 
 assign req_1_offs = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];

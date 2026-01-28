@@ -56,6 +56,9 @@
 {% if cnfg.en_tcp %}
 `define EN_TCP
 {% endif %}
+{% if cnfg.en_bypass %}
+`define EN_BYPASS
+{% endif %}
 {% if cnfg.en_net_0 %}
 `define EN_NET_0
 {% endif %}
@@ -377,6 +380,7 @@ package lynxTypes;
     parameter integer MEM_FLOW = {{ cnfg.en_mem }};
     parameter integer RDMA_FLOW = {{ cnfg.en_rdma }};
     parameter integer TCP_FLOW = {{ cnfg.en_tcp }};
+    parameter integer BYPASS_FLOW = {{ cnfg.en_bypass }};
     parameter integer N_WBS = {{ cnfg.n_wbs }};
     parameter integer QSFP = {{ cnfg.qsfp }};
 
@@ -417,7 +421,12 @@ package lynxTypes;
         logic host; // rsrvd
         logic [OFFS_BITS-1:0] offs; // rsrvd
 
-        logic [128-OFFS_BITS-2-VADDR_BITS-LEN_BITS-1-2*DEST_BITS-PID_BITS-3-STRM_BITS-OPCODE_BITS-1:0] rsrvd;
+        
+        // Format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+        // Injected by gate_mem and used by DMA controller to route responses through vIO Switch
+        logic [13:0] route_id;
+
+        logic [128-14-OFFS_BITS-2-VADDR_BITS-LEN_BITS-1-2*DEST_BITS-PID_BITS-3-STRM_BITS-OPCODE_BITS-1:0] rsrvd;
     } req_t;
 
     typedef struct packed {
@@ -511,7 +520,11 @@ package lynxTypes;
         logic [LEN_BITS-1:0] len;
         logic last;
 
-        logic [96-PADDR_BITS-LEN_BITS-1-1:0] rsrvd;
+        
+        // Used by DMA controller to route responses back through vIO Switch to correct vFPGA
+        logic [13:0] route_id;
+
+        logic [96-14-PADDR_BITS-LEN_BITS-1-1:0] rsrvd;
     } dma_req_t;
 
     typedef struct packed {
@@ -547,6 +560,7 @@ package lynxTypes;
     } rdma_qp_ctx_t;
 
     typedef struct packed {
+        logic [13:0] route_id;          
         logic [15:0] remote_udp_port;
         logic [127:0] remote_ip_address;
         logic [23:0] remote_qpn;
@@ -583,12 +597,13 @@ package lynxTypes;
     } tcp_open_req_t;
 
     typedef struct packed {
+        logic [13:0] route_id;          
         logic rsrvd;
         logic close;
         logic [DEST_BITS-1:0] dest;
         logic [PID_BITS-1:0] pid;
         logic [DEST_BITS-1:0] vfid;
-        logic [TCP_IP_PORT_BITS-1:0] ip_port; 
+        logic [TCP_IP_PORT_BITS-1:0] ip_port;
         logic [TCP_IP_ADDRESS_BITS-1:0] ip_address;
     } tcp_open_req_r_t;
 

@@ -98,7 +98,16 @@ module cnfg_slave #(
     metaIntf.s                  s_notify,
 
     // Control
-    output logic                usr_irq
+    output logic                usr_irq,
+
+    // Memory endpoint control (99 bits per endpoint)
+    output logic [98:0]         ep_ctrl,
+
+  
+    output logic [13:0]         route_id,
+
+    // IO Control
+    output logic [13:0]         io_ctrl
 );  
 
 // -- Decl -------------------------------------------------------------------------------
@@ -356,6 +365,12 @@ localparam integer TCP_OPEN_PORT_STAT_REG                   = 52;
 
 localparam integer TCP_OPEN_CONN_REG                        = 56;
 localparam integer TCP_OPEN_CONN_STAT_REG                   = 60;
+
+// 62 (RW): IO Switch and Route ID control
+localparam integer IO_SWITCH_REG                            = 62;
+
+// 63 (RW): Memory Endpoint control (99 bits)
+localparam integer EP_CTRL_BASE_REG                         = 63;
 
 // 64 (RO) : Status DMA completion
 localparam integer STAT_DMA_REG                             = 2**PID_BITS;
@@ -770,7 +785,21 @@ always_ff @(posedge aclk) begin
                     if(s_axi_ctrl.wstrb[0]) begin
                         open_conn_sts.ready <= s_axi_ctrl.wdata[0];
                     end
-`endif 
+`endif
+
+                IO_SWITCH_REG: // IO switch and route_id configure
+                    for (int i = 0; i < AXIL_DATA_BITS/8; i++) begin
+                        if(s_axi_ctrl.wstrb[i]) begin
+                            slv_reg[IO_SWITCH_REG][(i*8)+:8] <= s_axi_ctrl.wdata[(i*8)+:8];
+                        end
+                    end
+
+                EP_CTRL_BASE_REG: // Memory endpoint control
+                    for (int i = 0; i < AXIL_DATA_BITS/8; i++) begin
+                        if(s_axi_ctrl.wstrb[i]) begin
+                            slv_reg[EP_CTRL_BASE_REG][(i*8)+:8] <= s_axi_ctrl.wdata[(i*8)+:8];
+                        end
+                    end
 
         default: ;
       endcase
@@ -892,17 +921,22 @@ always_ff @(posedge aclk) begin
 `endif 
 
 `ifdef EN_TCP
-        TCP_OPEN_PORT_REG: 
+        TCP_OPEN_PORT_REG:
             axi_rdata[0] <= m_open_port_cmd.ready;
         TCP_OPEN_PORT_STAT_REG:
             axi_rdata[63:0] <= open_port_sts_response;
 
-        TCP_OPEN_CONN_REG: 
+        TCP_OPEN_CONN_REG:
             axi_rdata[0] <= m_open_conn_cmd.ready;
         TCP_OPEN_CONN_STAT_REG:
             axi_rdata[1:0] <= open_port_sts_response[1:0];
-`endif 
+`endif
 
+        IO_SWITCH_REG:
+            axi_rdata <= slv_reg[IO_SWITCH_REG];
+
+        EP_CTRL_BASE_REG:
+            axi_rdata <= slv_reg[EP_CTRL_BASE_REG];
 
         [STAT_DMA_REG:STAT_DMA_REG+(2**PID_BITS)-1]: begin
           axi_mux <= 1;
@@ -1174,6 +1208,11 @@ assign pfault_wr_ctrl.valid = slv_reg[ISR_REG][ISR_RESTART_WR];
 assign pfault_wr_ctrl.data = slv_reg[ISR_REG][ISR_SUCCESS];
 
 assign usr_irq = irq_pending;
+
+// IO control and route_id
+assign io_ctrl = slv_reg[IO_SWITCH_REG][13:0];
+assign route_id = slv_reg[IO_SWITCH_REG][27:14];  // Upper bits for route_id
+assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][98:0]; // 99-bit endpoint control
 
 // Host request
 metaIntf #(.STYPE(dreq_t)) host_req (.*);

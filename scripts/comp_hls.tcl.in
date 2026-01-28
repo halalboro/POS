@@ -45,18 +45,7 @@ if {$cfg(load_apps) eq 1} {
 
                     # Add files
                     set_top "$krnl"
-                    if {$krnl eq "svm_speech_30_0"} {
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/$krnl.cpp" -cflags "-std=c++14 -I $build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/rtGetInf.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/rtGetNaN.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/rt_nonfinite.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/svm_speech_30_data.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/svm_speech_30_terminate.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/svm_speech_30_initialize.c"
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/CompactClassificationECOC.c"
-                    } else {
-                        add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/$krnl.cpp" -cflags "-std=c++14 -I $build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls"
-                    }
+                    add_files "$build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls/$krnl.cpp" -cflags "-std=c++14 -I $build_dir/$project\_config_$i/user\_c$i\_$j/hdl/ext/$krnl\_hls"
 
                     # Synth
                     csynth_design

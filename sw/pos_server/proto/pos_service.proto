@@ -1,0 +1,440 @@
+/**
+ * POS Service Protocol
+ *
+ * Provides gRPC interface for deploying and managing Data Flow Graphs (DFGs)
+ * on POS worker nodes.
+ *
+ * Architecture:
+ *   Client node (gRPC client) ──→ gRPC ──→ Worker node (POS server) ──→ POS kernel ──→ vFPGA
+ *
+ * Copyright (c) 2025, Systems Group, ETH Zurich
+ * MIT License
+ */
+
+syntax = "proto3";
+
+package pos;
+
+option cc_generic_services = true;
+
+// ============================================================================
+// Core Data Types
+// ============================================================================
+
+// Node types matching dfg.hpp NodeType enum
+enum NodeType {
+    NODE_TYPE_UNKNOWN = 0;
+    NODE_TYPE_COMPUTE = 1;
+    NODE_TYPE_MEMORY = 2;
+    NODE_TYPE_NETWORK_RDMA = 3;
+    NODE_TYPE_NETWORK_TCP = 4;
+    NODE_TYPE_NETWORK_RAW = 5;
+    NODE_TYPE_SOFTWARE_PARSER = 6;
+    NODE_TYPE_SOFTWARE_DEPARSER = 7;
+    NODE_TYPE_SOFTWARE_NF = 8;
+    NODE_TYPE_REMOTE_DFG = 9;
+}
+
+// Capability scope matching dfg.hpp CapabilityScope enum
+enum CapabilityScope {
+    SCOPE_LOCAL = 0;
+    SCOPE_NETWORK = 1;
+    SCOPE_SOFTWARE = 2;
+    SCOPE_REMOTE = 3;
+    SCOPE_GLOBAL = 4;
+}
+
+// Stream mode
+enum StreamMode {
+    STREAM_HOST = 0;
+    STREAM_CARD = 1;
+}
+
+// ============================================================================
+// Capability Messages
+// ============================================================================
+
+// Capability definition for access control
+message CapabilitySpec {
+    string cap_id = 1;
+    uint32 permissions = 2;         // Bitmask of CapabilityPermission
+    CapabilityScope scope = 3;
+    string parent_cap_id = 4;       // Empty for root capability
+    uint64 expiry_timestamp = 5;    // Unix timestamp, 0 = no expiry
+}
+
+// ============================================================================
+// Node Messages
+// ============================================================================
+
+// Common node properties
+message NodeSpec {
+    string node_id = 1;
+    NodeType node_type = 2;
+
+    // Type-specific configuration (oneof)
+    oneof config {
+        ComputeNodeConfig compute_config = 10;
+        NetworkRDMAConfig rdma_config = 11;
+        NetworkTCPConfig tcp_config = 12;
+        NetworkRawConfig raw_config = 13;
+        SoftwareNodeConfig software_config = 14;
+        RemoteDFGConfig remote_config = 15;
+    }
+}
+
+// Compute node (vFPGA) configuration
+message ComputeNodeConfig {
+    int32 vfid = 1;                 // vFPGA ID
+    uint32 operation_type = 2;      // CoyoteOper enum value
+    bool use_huge_pages = 3;
+}
+
+// RDMA network node configuration
+message NetworkRDMAConfig {
+    uint16 vlan_id = 1;
+    string remote_host = 2;
+    uint32 remote_port = 3;
+    uint64 bandwidth_limit_bps = 4;
+    uint32 max_connections = 5;
+}
+
+// TCP network node configuration
+message NetworkTCPConfig {
+    uint32 port = 1;
+    bool is_server = 2;
+    string remote_host = 3;         // For client mode
+}
+
+// Raw Ethernet node configuration
+message NetworkRawConfig {
+    string interface_name = 1;
+    uint16 ethertype = 2;
+    bool promiscuous = 3;
+}
+
+// Software node (Parser/Deparser/NF) configuration
+message SoftwareNodeConfig {
+    // Resource limits
+    uint64 max_memory_bytes = 1;
+    double max_cpu_percent = 2;
+    uint32 max_threads = 3;
+    uint64 max_bandwidth_bps = 4;
+
+    // Function code (for dynamic loading, optional)
+    string function_name = 5;
+    bytes function_code = 6;        // Serialized function (e.g., WASM, shared lib)
+}
+
+// Remote DFG node configuration
+message RemoteDFGConfig {
+    string remote_host = 1;
+    uint32 remote_port = 2;
+    uint16 local_vlan_id = 3;
+    uint16 remote_vlan_id = 4;
+}
+
+// ============================================================================
+// Buffer Messages
+// ============================================================================
+
+// Buffer specification
+message BufferSpec {
+    string buffer_id = 1;
+    uint64 size = 2;
+    bool use_huge_pages = 3;
+
+    // Optional initial data
+    bytes initial_data = 4;
+}
+
+// ============================================================================
+// Edge/Connection Messages
+// ============================================================================
+
+// Edge connecting nodes/buffers
+message EdgeSpec {
+    string source_id = 1;           // Node or buffer ID
+    string target_id = 2;           // Node or buffer ID
+    string edge_id = 3;             // Optional edge identifier
+
+    // Edge properties
+    uint32 priority = 4;
+    uint64 bandwidth_hint = 5;      // Hint for scheduler
+}
+
+// ============================================================================
+// DFG Messages
+// ============================================================================
+
+// Complete DFG specification for deployment
+message DFGSpec {
+    string dfg_id = 1;
+    string app_id = 2;
+    uint32 device_id = 3;
+    StreamMode stream_mode = 4;
+    bool use_huge_pages = 5;
+
+    // Graph components
+    repeated NodeSpec nodes = 10;
+    repeated BufferSpec buffers = 11;
+    repeated EdgeSpec edges = 12;
+
+    // Capabilities
+    repeated CapabilitySpec capabilities = 20;
+    string root_capability_id = 21;
+
+    // Metadata
+    map<string, string> metadata = 30;
+}
+
+// DFG instance handle returned after deployment
+message DFGHandle {
+    string dfg_id = 1;
+    string instance_id = 2;         // Unique instance ID on worker
+    uint64 deployment_timestamp = 3;
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+// Deploy a new DFG
+message DeployDFGRequest {
+    DFGSpec dfg_spec = 1;
+    string client_id = 2;
+    string auth_token = 3;          // For authentication
+}
+
+message DeployDFGResponse {
+    bool success = 1;
+    string error_message = 2;
+    DFGHandle handle = 3;
+}
+
+// Undeploy (tear down) a DFG
+message UndeployDFGRequest {
+    string instance_id = 1;
+    string client_id = 2;
+    string auth_token = 3;
+}
+
+message UndeployDFGResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// Get status of a deployed DFG
+message GetDFGStatusRequest {
+    string instance_id = 1;
+    string client_id = 2;
+}
+
+message DFGStatus {
+    string instance_id = 1;
+    string dfg_id = 2;
+
+    enum State {
+        STATE_UNKNOWN = 0;
+        STATE_DEPLOYING = 1;
+        STATE_RUNNING = 2;
+        STATE_STALLED = 3;
+        STATE_ERROR = 4;
+        STATE_STOPPED = 5;
+    }
+    State state = 3;
+
+    uint64 uptime_seconds = 4;
+    uint64 bytes_processed = 5;
+    uint64 operations_completed = 6;
+
+    // Per-node status
+    map<string, string> node_status = 10;
+
+    string error_message = 20;
+}
+
+message GetDFGStatusResponse {
+    bool success = 1;
+    string error_message = 2;
+    DFGStatus status = 3;
+}
+
+// List all deployed DFGs
+message ListDFGsRequest {
+    string client_id = 1;
+}
+
+message ListDFGsResponse {
+    bool success = 1;
+    string error_message = 2;
+    repeated DFGStatus dfgs = 3;
+}
+
+// Execute operation on a node
+message ExecuteNodeRequest {
+    string instance_id = 1;
+    string node_id = 2;
+    string client_id = 3;
+    string cap_id = 4;              // Capability for authorization
+
+    // Scatter-gather entry for the operation
+    uint64 src_addr = 10;
+    uint32 src_len = 11;
+    uint64 dst_addr = 12;
+    uint32 dst_len = 13;
+
+    bool blocking = 20;
+}
+
+message ExecuteNodeResponse {
+    bool success = 1;
+    string error_message = 2;
+    uint64 completion_id = 3;       // For async operations
+}
+
+// Read buffer data
+message ReadBufferRequest {
+    string instance_id = 1;
+    string buffer_id = 2;
+    string client_id = 3;
+    string cap_id = 4;
+
+    uint64 offset = 10;
+    uint64 length = 11;
+}
+
+message ReadBufferResponse {
+    bool success = 1;
+    string error_message = 2;
+    bytes data = 3;
+}
+
+// Write buffer data
+message WriteBufferRequest {
+    string instance_id = 1;
+    string buffer_id = 2;
+    string client_id = 3;
+    string cap_id = 4;
+
+    uint64 offset = 10;
+    bytes data = 11;
+}
+
+message WriteBufferResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// Delegate capability
+message DelegateCapabilityRequest {
+    string instance_id = 1;
+    string source_cap_id = 2;
+    string new_cap_id = 3;
+    uint32 permissions = 4;         // Must be subset of source
+    CapabilityScope scope = 5;
+    uint64 expiry_timestamp = 6;
+    string client_id = 7;
+}
+
+message DelegateCapabilityResponse {
+    bool success = 1;
+    string error_message = 2;
+    CapabilitySpec delegated_cap = 3;
+}
+
+// Revoke capability
+message RevokeCapabilityRequest {
+    string instance_id = 1;
+    string cap_id = 2;
+    bool recursive = 3;             // Also revoke children
+    string client_id = 4;
+    string admin_cap_id = 5;        // Capability with DELEGATE permission
+}
+
+message RevokeCapabilityResponse {
+    bool success = 1;
+    string error_message = 2;
+    uint32 revoked_count = 3;       // Number of capabilities revoked
+}
+
+// Health check
+message HealthCheckRequest {
+    string client_id = 1;
+}
+
+message HealthCheckResponse {
+    bool healthy = 1;
+    string version = 2;
+    uint32 active_dfgs = 3;
+    uint64 uptime_seconds = 4;
+    uint64 available_memory = 5;
+    uint32 available_vfpgas = 6;
+}
+
+// Setup RDMA connection to another worker (Multi-FPGA)
+message SetupRDMARequest {
+    string instance_id = 1;         // DFG instance on this worker
+    string node_id = 2;             // REMOTE node that needs RDMA
+    string client_id = 3;
+
+    // Remote worker information
+    string remote_ip = 10;          // IP of the remote worker
+    uint32 remote_rdma_port = 11;   // RDMA QP exchange port (default 18488)
+    uint32 buffer_size = 12;        // RDMA buffer size
+
+    bool is_initiator = 20;         // true = client (connect), false = server (listen)
+}
+
+message SetupRDMAResponse {
+    bool success = 1;
+    string error_message = 2;
+
+    // Connection info (for verification)
+    uint32 local_qpn = 10;          // Local Queue Pair Number
+    uint32 remote_qpn = 11;         // Remote Queue Pair Number
+    string local_ip = 12;
+    string remote_ip = 13;
+}
+
+// Execute all nodes in a deployed DFG (start the pipeline)
+message ExecuteDFGRequest {
+    string instance_id = 1;
+    string client_id = 2;
+    string cap_id = 3;
+}
+
+message ExecuteDFGResponse {
+    bool success = 1;
+    string error_message = 2;
+}
+
+// ============================================================================
+// Service Definition
+// ============================================================================
+
+service POSService {
+    // DFG lifecycle management
+    rpc DeployDFG(DeployDFGRequest) returns (DeployDFGResponse);
+    rpc UndeployDFG(UndeployDFGRequest) returns (UndeployDFGResponse);
+    rpc GetDFGStatus(GetDFGStatusRequest) returns (GetDFGStatusResponse);
+    rpc ListDFGs(ListDFGsRequest) returns (ListDFGsResponse);
+
+    // Node operations
+    rpc ExecuteNode(ExecuteNodeRequest) returns (ExecuteNodeResponse);
+
+    // Buffer operations
+    rpc ReadBuffer(ReadBufferRequest) returns (ReadBufferResponse);
+    rpc WriteBuffer(WriteBufferRequest) returns (WriteBufferResponse);
+
+    // Capability management
+    rpc DelegateCapability(DelegateCapabilityRequest) returns (DelegateCapabilityResponse);
+    rpc RevokeCapability(RevokeCapabilityRequest) returns (RevokeCapabilityResponse);
+
+    // Health and monitoring
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+
+    // Multi-FPGA support
+    rpc SetupRDMA(SetupRDMARequest) returns (SetupRDMAResponse);
+    rpc ExecuteDFG(ExecuteDFGRequest) returns (ExecuteDFGResponse);
+}

@@ -1,0 +1,212 @@
+// P4Runtime Simple Protocol
+// A simplified P4Runtime-inspired protocol for Coyote FPGA router control plane
+//
+// This is designed to work with POSRuntimeEngine and provides:
+// - Table entry CRUD operations
+// - High-level convenience APIs (addForwardingRule, addDropRule)
+// - Statistics and monitoring
+
+syntax = "proto3";
+
+package pos.p4runtime;
+
+option cc_enable_arenas = true;
+
+// =============================================================================
+// Core Data Types
+// =============================================================================
+
+// Table entry - matches the P4TableEntry struct in runtime_engine.hpp
+message TableEntry {
+    string table_name = 1;      // e.g., "ipv4_lpm"
+    uint32 entry_idx = 2;       // Hardware entry index (0 = auto-assign)
+    uint32 prefix = 3;          // IPv4 prefix (network byte order)
+    uint32 prefix_len = 4;      // Prefix length (0-32)
+    string action_name = 5;     // e.g., "ipv4_forward", "drop", "NoAction"
+    uint64 dst_mac = 6;         // Destination MAC address
+    uint32 egress_port = 7;     // Egress port number
+    uint32 priority = 8;        // Entry priority (for tie-breaking)
+    string description = 9;     // Human-readable description
+}
+
+// Router action types (matches RouterAction enum)
+enum RouterAction {
+    ACTION_DROP = 0;
+    ACTION_FORWARD = 1;
+    ACTION_NOACTION = 2;
+}
+
+// =============================================================================
+// Write Operations
+// =============================================================================
+
+// Type of table update operation
+enum UpdateType {
+    UPDATE_INSERT = 0;      // Insert new entry
+    UPDATE_MODIFY = 1;      // Modify existing entry
+    UPDATE_DELETE = 2;      // Delete existing entry
+}
+
+// Request to write (insert/modify/delete) a table entry
+message WriteRequest {
+    UpdateType type = 1;
+    TableEntry entry = 2;
+}
+
+// Response to write request
+message WriteResponse {
+    bool success = 1;
+    string error_message = 2;
+    uint32 entry_idx = 3;       // Assigned index (for INSERT)
+}
+
+// Batch write request (multiple entries at once)
+message BatchWriteRequest {
+    repeated WriteRequest requests = 1;
+}
+
+message BatchWriteResponse {
+    bool all_success = 1;
+    repeated WriteResponse responses = 2;
+}
+
+// =============================================================================
+// Read Operations
+// =============================================================================
+
+// Request to read table entries
+message ReadRequest {
+    string table_name = 1;      // Empty = all tables
+    uint32 entry_idx = 2;       // 0 = all entries, >0 = specific entry
+}
+
+// Response containing table entries
+message ReadResponse {
+    repeated TableEntry entries = 1;
+}
+
+// =============================================================================
+// Clear Operations
+// =============================================================================
+
+// Request to clear table entries
+message ClearRequest {
+    string table_name = 1;      // Empty = all tables
+}
+
+// Response to clear request
+message ClearResponse {
+    bool success = 1;
+    uint32 entries_cleared = 2;
+}
+
+// =============================================================================
+// High-Level Convenience Operations
+// =============================================================================
+
+// Request to add a forwarding rule (convenience API)
+message ForwardingRuleRequest {
+    string ip_cidr = 1;         // e.g., "192.168.1.0/24" or "10.0.0.1/32"
+    string mac = 2;             // e.g., "aa:bb:cc:dd:ee:ff"
+    uint32 port = 3;            // Egress port number
+}
+
+// Request to add a drop rule
+message DropRuleRequest {
+    string ip_cidr = 1;         // e.g., "10.0.0.0/8"
+}
+
+// Request to add a default route
+message DefaultRouteRequest {
+    string action = 1;          // "forward", "drop", or "noaction"
+    string mac = 2;             // MAC (only for forward)
+    uint32 port = 3;            // Port (only for forward)
+}
+
+// Generic rule response (used for forwarding/drop/default rules)
+message RuleResponse {
+    bool success = 1;
+    string error_message = 2;
+    uint32 entry_idx = 3;       // Assigned hardware index
+}
+
+// Batch add routing rules
+message BatchRoutingRulesRequest {
+    message RoutingRule {
+        string ip_cidr = 1;
+        string mac = 2;
+        uint32 port = 3;
+        string action = 4;      // "forward" or "drop"
+    }
+    repeated RoutingRule rules = 1;
+}
+
+message BatchRoutingRulesResponse {
+    uint32 success_count = 1;
+    uint32 total_count = 2;
+    repeated RuleResponse responses = 3;
+}
+
+// =============================================================================
+// Statistics and Monitoring
+// =============================================================================
+
+// Request for statistics (empty message)
+message StatsRequest {
+}
+
+// Statistics response
+message StatsResponse {
+    uint32 total_entries = 1;
+    uint32 max_entries = 2;
+    uint32 next_entry_idx = 3;
+    repeated TableEntry entries = 4;
+}
+
+// Hardware verification request
+message VerifyHardwareRequest {
+}
+
+message VerifyHardwareResponse {
+    bool hardware_ok = 1;
+    string status_message = 2;
+}
+
+// =============================================================================
+// Route Lookup (for testing/debugging)
+// =============================================================================
+
+message RouteLookupRequest {
+    string ip_address = 1;      // e.g., "192.168.1.100"
+}
+
+message RouteLookupResponse {
+    bool found = 1;
+    TableEntry entry = 2;       // Matching entry if found
+}
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+service P4RuntimeService {
+    // Core table operations
+    rpc Write(WriteRequest) returns (WriteResponse);
+    rpc BatchWrite(BatchWriteRequest) returns (BatchWriteResponse);
+    rpc Read(ReadRequest) returns (ReadResponse);
+    rpc Clear(ClearRequest) returns (ClearResponse);
+
+    // High-level convenience operations
+    rpc AddForwardingRule(ForwardingRuleRequest) returns (RuleResponse);
+    rpc AddDropRule(DropRuleRequest) returns (RuleResponse);
+    rpc AddDefaultRoute(DefaultRouteRequest) returns (RuleResponse);
+    rpc AddRoutingRules(BatchRoutingRulesRequest) returns (BatchRoutingRulesResponse);
+
+    // Route management
+    rpc LookupRoute(RouteLookupRequest) returns (RouteLookupResponse);
+    rpc DeleteRoute(DropRuleRequest) returns (RuleResponse);  // Reuse DropRuleRequest (just needs ip_cidr)
+
+    // Statistics and monitoring
+    rpc GetStats(StatsRequest) returns (StatsResponse);
+    rpc VerifyHardware(VerifyHardwareRequest) returns (VerifyHardwareResponse);
+}

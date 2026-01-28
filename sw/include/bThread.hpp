@@ -62,13 +62,18 @@ protected:
     thread c_thread; // Instance of the thread and the run-variable to check if this thread is running or not 
     bool run = { false };
 
-    /* Remote */
-    std::unique_ptr<ibvQp> qpair; // Qpair for RDMA-operations based on this Thread 
+    /* Remote - Single QP (legacy) */
+    std::unique_ptr<ibvQp> qpair; // Qpair for RDMA-operations based on this Thread
     bool is_buff_attached;
+
+    /* Remote - Multiple QPs for multi-FPGA scenarios */
+    std::unordered_map<std::string, std::unique_ptr<ibvConnection>> connections;
+    uint16_t next_qpn = 0;  // Next available QPN for new connections
 
     /* Connection */
     int connection = { 0 };
     bool is_connected;
+    int sockfd = -1;  // Server socket for multi-connection support
 
 	/* Locks */
     named_mutex plock; // User vFPGA lock
@@ -204,14 +209,65 @@ public:
     void closeConnection();
 
 	/**
-	 * @brief RDMA connection management
-	 * 
+	 * @brief RDMA connection management (legacy single-QP)
+	 *
 	 */
     bool doArpLookup(uint32_t ip_addr);
     bool writeQpContext(uint32_t port);
 
     void connSync(bool client);
     void connClose(bool client);
+
+    /**
+     * @brief Multi-QP RDMA connection management
+     *
+     * These methods support multiple simultaneous RDMA connections,
+     * each identified by a unique name (e.g., "to_rose", "from_amy").
+     * This is required for multi-FPGA scenarios where a single vFPGA
+     * needs to communicate with multiple remote FPGAs.
+     */
+
+    /**
+     * @brief Write QP context for a specific named connection
+     * @param conn_name : Name of the connection
+     * @param port : UDP port for the connection
+     * @return true on success
+     */
+    bool writeQpContext(const std::string& conn_name, uint32_t port);
+
+    /**
+     * @brief Get a connection by name
+     * @param conn_name : Name of the connection
+     * @return Pointer to the connection, or nullptr if not found
+     */
+    ibvConnection* getConnection(const std::string& conn_name);
+
+    /**
+     * @brief Check if a named connection exists
+     * @param conn_name : Name of the connection
+     * @return true if connection exists
+     */
+    bool hasConnection(const std::string& conn_name) const;
+
+    /**
+     * @brief Get number of active connections
+     * @return Number of connections
+     */
+    size_t getConnectionCount() const { return connections.size(); }
+
+    /**
+     * @brief Sync on a specific connection
+     * @param conn_name : Name of the connection
+     * @param client : true if this node initiated the connection
+     */
+    void connSync(const std::string& conn_name, bool client);
+
+    /**
+     * @brief Close a specific connection
+     * @param conn_name : Name of the connection
+     * @param client : true if this node initiated the connection
+     */
+    void connClose(const std::string& conn_name, bool client);
 
     /**
 	 * @brief Getters, setters
@@ -223,6 +279,16 @@ public:
 
     inline auto getQpair() { return qpair.get(); }
     inline auto isBuffAttached() { return is_buff_attached; }
+
+    /**
+     * @brief Get QP for a named connection
+     * @param conn_name : Name of the connection
+     * @return Pointer to ibvQp, or nullptr if not found
+     */
+    inline ibvQp* getQpair(const std::string& conn_name) {
+        auto it = connections.find(conn_name);
+        return (it != connections.end()) ? it->second->qp.get() : nullptr;
+    }
     
 	/**
 	 * @brief Debug

@@ -198,6 +198,39 @@ struct tcpSg {
     uint32_t len = { 0 };
 };
 
+/**
+ * @brief Scatter-gather entry for RDMA operations with explicit connection specification
+ *
+ * This is used for multi-FPGA scenarios where a single vFPGA needs to communicate
+ * with multiple remote FPGAs. The connection name specifies which QP to use.
+ *
+ * Example (Clara forwarding to Rose):
+ *   rdmaSgConn sg = { .connection = "to_rose", .len = 4096 };
+ *   cthread.invoke(CoyoteOper::REMOTE_RDMA_WRITE, sg);
+ */
+struct rdmaSgConn {
+    /// Name of the connection to use (e.g., "to_rose", "from_amy")
+    std::string connection;
+
+    /// Offset from the local buffer address
+    uint64_t local_offs = { 0 };
+
+    /// Source buffer stream: HOST or CARD
+    uint32_t local_stream = { STRM_HOST };
+
+    /// Target AXI4 source stream in the vFPGA
+    uint32_t local_dest = { 0 };
+
+    /// Offset for the remote buffer
+    uint64_t remote_offs = { 0 };
+
+    /// Target AXI4 destination stream in the remote vFPGA
+    uint32_t remote_dest = { 0 };
+
+    /// Length of the RDMA transfer, in bytes
+    uint32_t len = { 0 };
+};
+
 
 }
 

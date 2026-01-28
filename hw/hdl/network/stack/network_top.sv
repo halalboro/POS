@@ -98,6 +98,10 @@ module network_top #(
     input logic [63:0]          s_ddr_offset_addr_tcp,
     AXI4.m                      m_axi_tcp_ddr,
 
+    // TCP route_id for VIU (POS) - from tcp_arbiter connection table
+    input  logic [13:0]         tcp_tx_route_id,
+    input  logic                tcp_tx_route_id_valid,
+
 `endif
 
 `ifdef EN_SNIFFER
@@ -108,9 +112,14 @@ module network_top #(
 
     // VIU control (VLAN routing capability)
     input  logic [13:0]         vlan_ctrl,
-    input  logic [1:0]          viu_port_in,
-    output logic [13:0]         viu_route_out,
-    output logic [1:0]          viu_port_out,
+
+    // TX path: route_id from vIO Switch (via tdest) for VLAN tag encoding
+    // Format: [9:6] sender_id, [5:2] receiver_id, [1:0] flags
+    input  logic [13:0]         viu_tx_tdest,
+
+    // Synchronized route_id on RX path (travels with packet data via tdest)
+    // This is the primary signal for vIO Switch routing - same approach as vFIU
+    output logic [13:0]         viu_rx_tdest,
 
     // Clocks
     input  wire                 aclk,
@@ -170,7 +179,8 @@ network_module #(
 /**
  * Cross early
  */
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_n_clk_rx_data (.aclk(n_clk), .aresetn(n_resetn));
+// RX path uses AXI4SR to carry route_id (tdest) from VIU through network stack to vIO Switch
+AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_n_clk_rx_data (.aclk(n_clk), .aresetn(n_resetn));
 AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_n_clk_tx_data (.aclk(n_clk), .aresetn(n_resetn));
 
 network_ccross_early #(
@@ -196,6 +206,69 @@ network_ccross_early #(
 AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_rx_data (.aclk(n_clk), .aresetn(n_resetn));  // From clock crossing (VLAN tagged)
 AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_tx_data (.aclk(n_clk), .aresetn(n_resetn));  // To clock crossing (VLAN tagged)
 
+// TX path route_id selection:
+// - When RDMA generates TX packets, use the route_id from RDMA connection table
+// - When TCP generates TX packets, use the route_id from TCP connection table
+// - Otherwise, use the externally provided viu_tx_tdest
+// Route_ids are looked up when commands are processed and held until the next command.
+logic [13:0] viu_tx_tdest_mux;
+
+`ifdef EN_RDMA
+logic [13:0] rdma_tx_route_id_held;
+
+// Hold the RDMA route_id - it's available when SQ command is processed
+// but packet data arrives later through the network stack
+always_ff @(posedge n_clk) begin
+    if (~n_resetn) begin
+        rdma_tx_route_id_held <= '0;
+    end else begin
+        if (rdma_tx_route_id_valid_n_clk) begin
+            rdma_tx_route_id_held <= rdma_tx_route_id_n_clk;
+        end
+    end
+end
+`endif
+
+`ifdef EN_TCP
+logic [13:0] tcp_tx_route_id_held;
+
+// Hold the TCP route_id - it's available when TX meta is processed
+// but packet data arrives later
+always_ff @(posedge n_clk) begin
+    if (~n_resetn) begin
+        tcp_tx_route_id_held <= '0;
+    end else begin
+        if (tcp_tx_route_id_valid) begin
+            tcp_tx_route_id_held <= tcp_tx_route_id;
+        end
+    end
+end
+`endif
+
+// Priority mux for route_id selection:
+// 1. RDMA route_id (when RDMA is enabled and has valid route)
+// 2. TCP route_id (when TCP is enabled and has valid route)
+// 3. External viu_tx_tdest (fallback)
+`ifdef EN_RDMA
+    `ifdef EN_TCP
+        // Both RDMA and TCP enabled - RDMA takes priority, then TCP
+        assign viu_tx_tdest_mux = (rdma_tx_route_id_held != '0) ? rdma_tx_route_id_held :
+                                  (tcp_tx_route_id_held != '0) ? tcp_tx_route_id_held :
+                                  viu_tx_tdest;
+    `else
+        // Only RDMA enabled
+        assign viu_tx_tdest_mux = (rdma_tx_route_id_held != '0) ? rdma_tx_route_id_held : viu_tx_tdest;
+    `endif
+`else
+    `ifdef EN_TCP
+        // Only TCP enabled
+        assign viu_tx_tdest_mux = (tcp_tx_route_id_held != '0) ? tcp_tx_route_id_held : viu_tx_tdest;
+    `else
+        // Neither RDMA nor TCP enabled
+        assign viu_tx_tdest_mux = viu_tx_tdest;
+    `endif
+`endif
+
 viu_top #(
     .N_ID(N_REGIONS)
 ) inst_viu (
@@ -204,16 +277,15 @@ viu_top #(
 
     // Routing capability from host
     .route_ctrl(vlan_ctrl),
-    .port_in(viu_port_in),
-    .route_out(viu_route_out),
-    .port_out(viu_port_out),
 
     // TX path: untagged from network stack -> VLAN tagged to CMAC
+    // s_axis_tx_tdest carries route_id from RDMA connection table or external source
     .s_axis_tx_tdata(axis_n_clk_tx_data.tdata),
     .s_axis_tx_tkeep(axis_n_clk_tx_data.tkeep),
     .s_axis_tx_tlast(axis_n_clk_tx_data.tlast),
     .s_axis_tx_tready(axis_n_clk_tx_data.tready),
     .s_axis_tx_tvalid(axis_n_clk_tx_data.tvalid),
+    .s_axis_tx_tdest(viu_tx_tdest_mux),  // Route ID from RDMA connection or external
 
     .m_axis_tx_tdata(axis_viu_tx_data.tdata),
     .m_axis_tx_tkeep(axis_viu_tx_data.tkeep),
@@ -222,18 +294,24 @@ viu_top #(
     .m_axis_tx_tvalid(axis_viu_tx_data.tvalid),
 
     // RX path: VLAN tagged from CMAC -> untagged to network stack
+    // VIU extracts route_id from VLAN tag and outputs it as tdest
+    // This flows through network stack as AXI4SR to vIO Switch
     .s_axis_rx_tdata(axis_viu_rx_data.tdata),
     .s_axis_rx_tkeep(axis_viu_rx_data.tkeep),
     .s_axis_rx_tlast(axis_viu_rx_data.tlast),
     .s_axis_rx_tready(axis_viu_rx_data.tready),
     .s_axis_rx_tvalid(axis_viu_rx_data.tvalid),
 
-    .m_axis_rx_tdata(axis_n_clk_rx_data.tdata),
-    .m_axis_rx_tkeep(axis_n_clk_rx_data.tkeep),
-    .m_axis_rx_tlast(axis_n_clk_rx_data.tlast),
-    .m_axis_rx_tready(axis_n_clk_rx_data.tready),
-    .m_axis_rx_tvalid(axis_n_clk_rx_data.tvalid)
+    .m_axis_rx_tdata(axisr_n_clk_rx_data.tdata),
+    .m_axis_rx_tkeep(axisr_n_clk_rx_data.tkeep),
+    .m_axis_rx_tlast(axisr_n_clk_rx_data.tlast),
+    .m_axis_rx_tready(axisr_n_clk_rx_data.tready),
+    .m_axis_rx_tvalid(axisr_n_clk_rx_data.tvalid),
+    .m_axis_rx_tdest(axisr_n_clk_rx_data.tdest)  // Route_id flows as tdest through network stack
 );
+
+// tid is not used for RX path (set to 0)
+assign axisr_n_clk_rx_data.tid = '0;
 
 /**
  * Network stack
@@ -291,6 +369,10 @@ AXI4S #(.AXI4S_DATA_BITS(AXI_DDR_BITS)) axis_rdma_mem_wr_aclk (.*);
 logic [N_REG_NET_S0:0][63:0] ddr_offset_addr_rdma;
 AXI4 axi_rdma_ddr_slice ();
 
+// RDMA route_id for VIU (POS)
+logic [13:0] rdma_tx_route_id_n_clk;
+logic        rdma_tx_route_id_valid_n_clk;
+
 // TCP/IP
 metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_n_clk (.aclk(n_clk), .aresetn(n_resetn));
 metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_n_clk (.aclk(n_clk), .aresetn(n_resetn));
@@ -340,7 +422,7 @@ AXI4 axi_tcp_ddr_slice ();
  * Network stack
  */
 network_stack inst_network_stack (
-    .s_axis_net(axis_n_clk_rx_data),
+    .s_axis_net(axisr_n_clk_rx_data),  // AXI4SR with route_id in tdest
     .m_axis_net(axis_n_clk_tx_data),
 
     .s_arp_lookup_request(arp_lookup_request_n_clk),
@@ -368,7 +450,11 @@ network_stack inst_network_stack (
     .s_rdma_mem_wr_sts(rdma_mem_wr_sts_aclk),
     .s_axis_rdma_mem_rd(axis_rdma_mem_rd_n_clk),
     .m_axis_rdma_mem_wr(axis_rdma_mem_wr_n_clk),
-`endif 
+
+    // RDMA route_id for VIU (POS)
+    .rdma_tx_route_id(rdma_tx_route_id_n_clk),
+    .rdma_tx_route_id_valid(rdma_tx_route_id_valid_n_clk),
+`endif
 
 `ifdef EN_TCP
     .s_tcp_listen_req(tcp_listen_req_n_clk),

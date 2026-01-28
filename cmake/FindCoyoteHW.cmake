@@ -46,7 +46,7 @@ set(N_CARD_AXI 1 CACHE STRING "Number of memory streams.")
 # Mem
 set(MEM_TYPE 1 CACHE STRING "Memory type (DDR/HBM).")
 set(DDR_DEV "vcu118" "u200" "u250" "u280" "enzian")
-set(HBM_DEV "u280" "u50" "u55c")
+set(HBM_DEV "u50" "u55c")
 set(N_DDR_CHAN 0 CACHE STRING "Number of DDR channels.")
 
 # TLBs
@@ -64,6 +64,7 @@ set(EN_RDMA 0 CACHE STRING "Enable RDMA stack.")
 set(N_RDMA_AXI 1 CACHE STRING "Number of RDMA streams.")
 set(EN_TCP 0 CACHE STRING "Enable TCP/IP stack.")
 set(N_TCP_AXI 1 CACHE STRING "Number of TCP/IP streams.")
+set(EN_BYPASS 0 CACHE STRING "Enable raw Ethernet bypass stack.")
 
 # QSFP ports
 set(EN_NET_0 1 CACHE STRING "QSFP port 0.")

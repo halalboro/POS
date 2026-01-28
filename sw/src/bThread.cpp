@@ -1239,7 +1239,7 @@ void bThread::connSync(bool client) {
  */
 void bThread::connClose(bool client) {
     # ifdef VERBOSE
-        std::cout << "bThread: Called to close a connection." << std::endl; 
+        std::cout << "bThread: Called to close a connection." << std::endl;
     # endif
     if(client) {
         sendAck(1);
@@ -1248,6 +1248,191 @@ void bThread::connClose(bool client) {
         readAck();
         closeConnection();
     }
+}
+
+// ======-------------------------------------------------------------------------------
+// MULTI-QP RDMA CONNECTION MANAGEMENT
+// ======-------------------------------------------------------------------------------
+
+/**
+ * @brief Write QP context for a specific named connection
+ *
+ * This function programs the hardware QP tables with the connection information.
+ * Unlike the legacy writeQpContext(), this version uses the connection's QPN
+ * to index into the hardware tables, allowing multiple simultaneous connections.
+ *
+ * @param conn_name : Name of the connection to configure
+ * @param port : UDP port for the connection
+ * @return true on success
+ */
+bool bThread::writeQpContext(const std::string& conn_name, uint32_t port) {
+    # ifdef VERBOSE
+        std::cout << "bThread: Called writeQpContext for connection '" << conn_name << "'" << std::endl;
+    # endif
+
+    auto it = connections.find(conn_name);
+    if (it == connections.end()) {
+        std::cerr << "ERROR: Connection '" << conn_name << "' not found" << std::endl;
+        return false;
+    }
+
+    ibvConnection* conn = it->second.get();
+    ibvQp* qp = conn->qp.get();
+
+    if (!fcnfg.en_rdma) {
+        std::cerr << "ERROR: RDMA not enabled in hardware configuration" << std::endl;
+        return false;
+    }
+
+    uint64_t offs[3];
+
+    // Write QP context - QPN uses the connection's assigned QPN (not ctid)
+    // This allows multiple QPs to coexist in the hardware tables
+    offs[0] = ((static_cast<uint64_t>(conn->qpn) & 0xffffff) << qpContextQpnOffs) |
+              ((static_cast<uint64_t>(qp->remote.rkey) & 0xffffffff) << qpContextRkeyOffs);
+
+    offs[1] = ((static_cast<uint64_t>(qp->local.psn) & 0xffffff) << qpContextLpsnOffs) |
+              ((static_cast<uint64_t>(qp->remote.psn) & 0xffffff) << qpContextRpsnOffs);
+
+    offs[2] = ((static_cast<uint64_t>((uint64_t)qp->remote.vaddr) & 0xffffffffffff) << qpContextVaddrOffs);
+
+    # ifdef VERBOSE
+        std::cout << "bThread: writeQpContext for '" << conn_name << "' QPN=" << conn->qpn << std::endl;
+        std::cout << " - offs[0] " << std::hex << offs[0] << std::endl;
+        std::cout << " - offs[1] " << offs[1] << std::endl;
+        std::cout << " - offs[2] " << offs[2] << std::dec << std::endl;
+    # endif
+
+    // Write QP context to hardware
+#ifdef EN_AVX
+    if (fcnfg.en_avx) {
+        if (_mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::RDMA_CTX_REG)], 0))
+            cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::RDMA_CTX_REG)] = _mm256_set_epi64x(0, offs[2], offs[1], offs[0]);
+        else
+            return false;
+    } else
+#endif
+    {
+        if ((LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CTX_REG_2)]))) {
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CTX_REG_0)] = offs[0];
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CTX_REG_1)] = offs[1];
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CTX_REG_2)] = offs[2];
+        } else
+            return false;
+    }
+
+    // Write Connection context - uses connection's QPN for table indexing
+    offs[0] = ((static_cast<uint64_t>(port) & 0xffff) << connContextPortOffs) |
+              ((static_cast<uint64_t>(qp->remote.qpn) & 0xffffff) << connContextRqpnOffs) |
+              ((static_cast<uint64_t>(conn->qpn) & 0xffff) << connContextLqpnOffs);
+
+    offs[1] = (htols(static_cast<uint64_t>(qp->remote.gidToUint(8)) & 0xffffffff) << 32) |
+              (htols(static_cast<uint64_t>(qp->remote.gidToUint(0)) & 0xffffffff) << 0);
+
+    offs[2] = (htols(static_cast<uint64_t>(qp->remote.gidToUint(24)) & 0xffffffff) << 32) |
+              (htols(static_cast<uint64_t>(qp->remote.gidToUint(16)) & 0xffffffff) << 0);
+
+#ifdef EN_AVX
+    if (fcnfg.en_avx) {
+        if (_mm256_extract_epi32(cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::RDMA_CONN_REG)], 0))
+            cnfg_reg_avx[static_cast<uint32_t>(CnfgAvxRegs::RDMA_CONN_REG)] = _mm256_set_epi64x(0, offs[2], offs[1], offs[0]);
+        else
+            return false;
+    } else
+#endif
+    {
+        if ((LOW_32(cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CONN_REG_2)]))) {
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CONN_REG_0)] = offs[0];
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CONN_REG_1)] = offs[1];
+            cnfg_reg[static_cast<uint32_t>(CnfgLegRegs::RDMA_CONN_REG_2)] = offs[2];
+        } else
+            return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Get a connection by name
+ */
+ibvConnection* bThread::getConnection(const std::string& conn_name) {
+    auto it = connections.find(conn_name);
+    return (it != connections.end()) ? it->second.get() : nullptr;
+}
+
+/**
+ * @brief Check if a named connection exists
+ */
+bool bThread::hasConnection(const std::string& conn_name) const {
+    return connections.find(conn_name) != connections.end();
+}
+
+/**
+ * @brief Sync on a specific connection
+ */
+void bThread::connSync(const std::string& conn_name, bool client) {
+    # ifdef VERBOSE
+        std::cout << "bThread: Called connSync for connection '" << conn_name << "'" << std::endl;
+    # endif
+
+    auto it = connections.find(conn_name);
+    if (it == connections.end()) {
+        throw std::runtime_error("ERROR: Connection '" + conn_name + "' not found");
+    }
+
+    ibvConnection* conn = it->second.get();
+    if (!conn->is_connected || conn->connfd < 0) {
+        throw std::runtime_error("ERROR: Connection '" + conn_name + "' is not connected");
+    }
+
+    uint32_t ack = 0;
+    if (client) {
+        if (::write(conn->connfd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
+            throw std::runtime_error("ERROR: Failed to send sync ack on connection '" + conn_name + "'");
+        }
+        if (::read(conn->connfd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
+            throw std::runtime_error("ERROR: Failed to read sync ack on connection '" + conn_name + "'");
+        }
+    } else {
+        if (::read(conn->connfd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
+            throw std::runtime_error("ERROR: Failed to read sync ack on connection '" + conn_name + "'");
+        }
+        if (::write(conn->connfd, &ack, sizeof(uint32_t)) != sizeof(uint32_t)) {
+            throw std::runtime_error("ERROR: Failed to send sync ack on connection '" + conn_name + "'");
+        }
+    }
+}
+
+/**
+ * @brief Close a specific connection
+ */
+void bThread::connClose(const std::string& conn_name, bool client) {
+    # ifdef VERBOSE
+        std::cout << "bThread: Called connClose for connection '" << conn_name << "'" << std::endl;
+    # endif
+
+    auto it = connections.find(conn_name);
+    if (it == connections.end()) {
+        return; // Connection doesn't exist, nothing to close
+    }
+
+    ibvConnection* conn = it->second.get();
+    if (!conn->is_connected || conn->connfd < 0) {
+        return; // Not connected
+    }
+
+    uint32_t ack = 1; // Close signal
+    if (client) {
+        ::write(conn->connfd, &ack, sizeof(uint32_t));
+        // Wait for close acknowledgment
+        ::read(conn->connfd, &ack, sizeof(uint32_t));
+    } else {
+        ::read(conn->connfd, &ack, sizeof(uint32_t));
+    }
+
+    ::close(conn->connfd);
+    conn->connfd = -1;
+    conn->is_connected = false;
 }
 
 // ======-------------------------------------------------------------------------------

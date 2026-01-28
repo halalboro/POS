@@ -423,7 +423,8 @@ endinterface
 // ----------------------------------------------------------------------------
 interface AXI4SR #(
 	parameter AXI4S_DATA_BITS = AXI_DATA_BITS,
-	parameter AXI4S_ID_BITS = PID_BITS
+	parameter AXI4S_ID_BITS = PID_BITS,
+	parameter AXI4S_DEST_BITS = 14
 ) (
     input logic aclk,
     input logic aresetn
@@ -432,10 +433,12 @@ interface AXI4SR #(
 typedef logic [AXI4S_DATA_BITS-1:0] data_t;
 typedef logic [AXI4S_DATA_BITS/8-1:0] keep_t;
 typedef logic [AXI4S_ID_BITS-1:0] id_t;
- 
+typedef logic [AXI4S_DEST_BITS-1:0] dest_t;
+
 data_t          tdata;
 keep_t  		tkeep;
 id_t  			tid;
+dest_t          tdest;
 logic           tlast;
 logic           tready;
 logic           tvalid;
@@ -446,6 +449,7 @@ task tie_off_m ();
     tkeep      = 0;
     tlast      = 1'b0;
 	tid 	   = 0;
+	tdest      = 0;
     tvalid     = 1'b0;
 endtask
 
@@ -458,13 +462,13 @@ endtask
 modport m (
 	import tie_off_m,
 	input tready,
-	output tdata, tkeep, tlast, tvalid, tid
+	output tdata, tkeep, tlast, tvalid, tid, tdest
 );
 
 // Slave
 modport s (
     import tie_off_s,
-    input tdata, tkeep, tlast, tvalid, tid,
+    input tdata, tkeep, tlast, tvalid, tid, tdest,
     output tready
 );
 
@@ -473,12 +477,12 @@ modport s (
 clocking cbm @(posedge aclk);
     default input #INPUT_TIMING output #OUTPUT_TIMING;
     input  tready;
-    output tdata, tkeep, tlast, tvalid, tid;
+    output tdata, tkeep, tlast, tvalid, tid, tdest;
 endclocking
 
 clocking cbs @(posedge aclk);
     default input #INPUT_TIMING output #OUTPUT_TIMING;
-    input  tdata, tkeep, tlast, tvalid, tid;
+    input  tdata, tkeep, tlast, tvalid, tid, tdest;
     output tready;
 endclocking
 

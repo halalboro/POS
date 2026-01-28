@@ -45,12 +45,14 @@ module tcp_port_table (
     metaIntf.m                                      m_listen_rsp,
 
     input  logic [TCP_PORT_ORDER-1:0]               port_addr,
-    output logic [TCP_PORT_TABLE_DATA_BITS-1:0]     rsid_out
+    output logic [TCP_PORT_TABLE_DATA_BITS-1:0]     rsid_out,
+    output logic [13:0]                             route_id_out
 );
 
 // -- Constants
 localparam integer KEY_BITS = 16;
 localparam integer TCP_PORT_TABLE_DATA_BITS = 16;
+localparam integer TCP_PORT_ROUTE_TABLE_DATA_BITS = 14;
 
 // -- Regs and signals
 typedef enum logic[2:0] {ST_IDLE, ST_LUP, ST_WAIT, ST_CHECK, 
@@ -59,13 +61,17 @@ logic [2:0] state_C, state_N;
 
 logic [TCP_IP_PORT_BITS-1:0] port_C, port_N;
 logic [TCP_PORT_REQ_BITS-1:0] port_lup_C, port_lup_N;
-logic [TCP_RSESSION_BITS-1:0:0] rsid_C, rsid_N;
+logic [TCP_RSESSION_BITS-1:0] rsid_C, rsid_N;
 logic [DEST_BITS-1:0] vfid_C, vfid_N;
+logic [13:0] route_id_C, route_id_N;
 
 logic [TCP_PORT_TABLE_DATA_BITS/8-1:0] a_we;
 logic [TCP_PORT_TABLE_DATA_BITS-1:0] a_data_out;
 logic [TCP_PORT_TABLE_DATA_BITS-1:0] b_data_out;
 logic b_en;
+
+logic [1:0] route_we;
+logic [13:0] route_b_data_out;
 
 logic hit;
 
@@ -81,13 +87,15 @@ always_ff @( posedge aclk ) begin : REG_LISTEN
         port_lup_C <= 'X;
         rsid_C <= 'X;
         vfid_C <= 'X;
-    else begin
+        route_id_C <= '0;
+    end else begin
         state_C <= state_N;
 
         port_C <= port_N;
-        port_lup_C <= port_lup_n;
+        port_lup_C <= port_lup_N;
         rsid_C <= rsid_N;
         vfid_C <= vfid_N;
+        route_id_C <= route_id_N;
     end
 end
 
@@ -124,6 +132,7 @@ always_comb begin : DP_LISTEN
     port_lup_N = port_lup_C;
     rsid_N = rsid_C;
     vfid_N = vfid_C;
+    route_id_N = route_id_C;
 
     s_listen_req.ready = 1'b0;
 
@@ -137,17 +146,19 @@ always_comb begin : DP_LISTEN
     m_listen_rsp.data.vfid = vfid_C;
 
     a_we = 0;
+    route_we = 0;
 
     case (state_C)
         ST_IDLE: begin
             if(s_listen_req.valid) begin
                 s_listen_req.ready = 1'b1;
                 port_lup_N = s_listen_req.data.ip_port - TCP_PORT_OFFS;
-                
+
                 port_N = s_listen_req.data.ip_port;
                 rsid_N = {s_listen_req.data.vfid, s_listen_req.data.pid, s_listen_req.data.dest};
                 vfid_N = s_listen_req.data.vfid;
-            end    
+                route_id_N = s_listen_req.data.route_id;
+            end
         end
 
         ST_RSP_COL: begin
@@ -167,6 +178,7 @@ always_comb begin : DP_LISTEN
             if(s_listen_rsp.valid & s_listen_rsp.ready) begin
                 if(s_listen_rsp.data[0]) begin
                      a_we = ~0;
+                     route_we = ~0;
                 end
             end
         end
@@ -179,7 +191,6 @@ end
 // Hit
 assign hit = a_data_out[TCP_RSESSION_BITS] == 1'b1;
 
-// Port table
 ram_tp_c #(
     .ADDR_BITS(TCP_PORT_ORDER),
     .DATA_BITS(TCP_PORT_TABLE_DATA_BITS)
@@ -193,6 +204,21 @@ ram_tp_c #(
     .a_data_in({2'b01, rsid_C}),
     .a_data_out(a_data_out),
     .b_data_out(rsid_out)
+);
+
+ram_tp_c #(
+    .ADDR_BITS(TCP_PORT_ORDER),
+    .DATA_BITS(TCP_PORT_ROUTE_TABLE_DATA_BITS)
+) inst_tcp_port_route_table (
+    .clk(aclk),
+    .a_en(1'b1),
+    .a_we(route_we),
+    .a_addr(port_lup_C[TCP_PORT_ORDER-1:0]),
+    .b_en(1'b1),
+    .b_addr(port_addr),
+    .a_data_in(route_id_C),
+    .a_data_out(),  // Not used on port A side
+    .b_data_out(route_id_out)
 );
 
 endmodule

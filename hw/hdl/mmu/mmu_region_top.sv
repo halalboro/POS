@@ -48,8 +48,12 @@ module mmu_region_top #(
     AXI4L.s   							s_axi_ctrl_sTlb,
     AXI4L.s   							s_axi_ctrl_lTlb,
 
-    // Control interface for memory endpoints
-    input logic [(131*N_ENDPOINTS)-1:0] ep_ctrl,
+    // Control interface for memory endpoints (99 bits per endpoint)
+    input logic [(99*N_ENDPOINTS)-1:0] ep_ctrl,
+
+  
+    // Format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    input logic [13:0] route_id,
 
 	// Requests user
 	metaIntf.s 						    s_bpss_rd_sq,
@@ -133,18 +137,20 @@ metaIntf #(.STYPE(req_t)) wr_req ();
 // ----------------------------------------------------------------------------------------
 // Memory Gateway - Filters and only passes authorized requests
 // ----------------------------------------------------------------------------------------
-memory_gateway #(
+gate_mem #(
     .N_ENDPOINTS(N_ENDPOINTS)
-) inst_memory_gateway (
+) inst_gate_mem (
     .aclk(aclk),
     .aresetn(aresetn),
     .ep_ctrl(ep_ctrl),
-    
+  
+    .route_id(route_id),
+
     // Original user requests
     .s_rd_req(s_bpss_rd_sq),
     .s_wr_req(s_bpss_wr_sq),
-    
-    // Only authorized requests pass through to TLB FSMs
+
+    // Only authorized requests pass through to TLB FSMs (with route_id injected)
     .m_rd_req(rd_req),
     .m_wr_req(wr_req)
 );
