@@ -69,14 +69,6 @@ module cnfg_slave_avx #(
     metaIntf.s                  s_rdma_done,
 `endif
 
-    // TCP
-`ifdef EN_TCP
-  metaIntf.m                    m_open_port_cmd,
-  metaIntf.s                    s_open_port_sts,
-  metaIntf.m                    m_open_conn_cmd,
-  metaIntf.s                    s_open_conn_sts,
-`endif
-
     // Writeback
 `ifdef EN_WB
     metaIntf.m                  m_wback,
@@ -98,16 +90,7 @@ module cnfg_slave_avx #(
     metaIntf.s                  s_notify,
 
     // Control
-    output logic                usr_irq,
-
-    // Memory endpoint control (99 bits per endpoint)
-    output logic [98:0]         ep_ctrl,
-
-  
-    output logic [13:0]         route_id,
-
-    // IO Control
-    output logic [13:0]          io_ctrl
+    output logic                usr_irq
 );
 
 // -- Decl -------------------------------------------------------------------------------
@@ -168,18 +151,18 @@ logic post;
 logic irq_pending;
 
 // IRQ
-metaIntf #(.STYPE(irq_pft_t)) pfault_irq_rd (.*);
+metaIntf #(.STYPE(irq_pft_t)) pfault_irq_rd ();
 logic [LEN_BITS-1:0] pfault_rng_rd;
-metaIntf #(.STYPE(irq_pft_t)) pfault_irq_wr (.*);
+metaIntf #(.STYPE(irq_pft_t)) pfault_irq_wr ();
 logic [LEN_BITS-1:0] pfault_rng_wr;
-metaIntf #(.STYPE(irq_inv_t)) invldt_irq_rd (.*);
-metaIntf #(.STYPE(irq_inv_t)) invldt_irq_wr (.*);
-metaIntf #(.STYPE(irq_not_t)) notify_irq (.*);
+metaIntf #(.STYPE(irq_inv_t)) invldt_irq_rd ();
+metaIntf #(.STYPE(irq_inv_t)) invldt_irq_wr ();
+metaIntf #(.STYPE(irq_not_t)) notify_irq ();
 
-metaIntf #(.STYPE(pf_t)) pfault_rd_ctrl (.*);
-metaIntf #(.STYPE(pf_t)) pfault_wr_ctrl (.*);
-metaIntf #(.STYPE(inv_t)) invldt_rd_ctrl (.*);
-metaIntf #(.STYPE(inv_t)) invldt_wr_ctrl (.*);
+metaIntf #(.STYPE(pf_t)) pfault_rd_ctrl ();
+metaIntf #(.STYPE(pf_t)) pfault_wr_ctrl ();
+metaIntf #(.STYPE(inv_t)) invldt_rd_ctrl ();
+metaIntf #(.STYPE(inv_t)) invldt_wr_ctrl ();
 
 logic [PID_BITS-1:0] pid_C;
 logic [HPID_BITS-1:0] hpid_C;
@@ -192,7 +175,7 @@ logic pwr_C;
 logic [31:0] local_queue_used;
 
 // Completion read
-metaIntf #(.STYPE(ack_t)) meta_done_rd (.*);
+metaIntf #(.STYPE(ack_t)) meta_done_rd ();
 
 logic rd_C;
 logic [3:0] a_we_rd;
@@ -205,7 +188,7 @@ logic rd_clear;
 logic [PID_BITS-1:0] rd_clear_addr;
 
 // Completion write
-metaIntf #(.STYPE(ack_t)) meta_done_wr (.*);
+metaIntf #(.STYPE(ack_t)) meta_done_wr ();
 
 logic wr_C;
 logic [3:0] a_we_wr;
@@ -219,9 +202,9 @@ logic [PID_BITS-1:0] wr_clear_addr;
 
 `ifdef EN_WB
 // Writeback
-metaIntf #(.STYPE(wback_t)) wback [N_WBS] (.*);
-metaIntf #(.STYPE(wback_t)) wback_q [N_WBS] (.*);
-metaIntf #(.STYPE(wback_t)) wback_arb (.*);
+metaIntf #(.STYPE(wback_t)) wback [N_WBS] ();
+metaIntf #(.STYPE(wback_t)) wback_q [N_WBS] ();
+metaIntf #(.STYPE(wback_t)) wback_arb ();
 `endif
 
 `ifdef EN_MEM
@@ -230,17 +213,17 @@ logic offload_post, sync_post;
 logic [31:0] offload_queue_used;
 logic [31:0] sync_queue_used;
 
-metaIntf #(.STYPE(dma_isr_req_t)) offload_req (.*);
-metaIntf #(.STYPE(dma_isr_req_t)) sync_req (.*);
+metaIntf #(.STYPE(dma_isr_req_t)) offload_req ();
+metaIntf #(.STYPE(dma_isr_req_t)) sync_req ();
 logic offload_rsp;
 logic sync_rsp;
 `endif
 
 `ifdef EN_RDMA
 // Completion RDMA
-metaIntf #(.STYPE(ack_t)) rdma_done_rd (.*);
-metaIntf #(.STYPE(ack_t)) rdma_done_wr (.*);
-metaIntf #(.STYPE(ack_t)) rdma_done (.*);
+metaIntf #(.STYPE(ack_t)) rdma_done_rd ();
+metaIntf #(.STYPE(ack_t)) rdma_done_wr ();
+metaIntf #(.STYPE(ack_t)) rdma_done ();
 
 logic rdma_rd_C;
 logic [3:0] a_we_rdma_rd;
@@ -263,14 +246,6 @@ logic rdma_clear_wr;
 logic [PID_BITS-1:0] rdma_clear_addr_wr;
 `endif
 
-`ifdef EN_TCP
-metaIntf #(.STYPE(tcp_listen_rsp_r_t) open_port_sts (.*);
-metaIntf #(.STYPE(tcp_open_rsp_r_t) open_port_sts (.*);
-
-logic [1:0] open_port_sts_response;
-logic [63:0] open_conn_sts_response;
-`endif
-
 
 // -- Def --------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------
@@ -291,7 +266,6 @@ localparam integer CTRL_REG                                 = 0;
     localparam integer CTRL_CLR_STAT        = 22;
     localparam integer CTRL_LEN_OFFS        = 32;
     localparam integer CTRL_VADDR_OFFS      = 64;
-    localparam integer CTRL_OFFS_OFFS       = 120;
     localparam integer WR_OFFS              = 128;
     // RD
     localparam integer CTRL_USED_OFFS       = 0;
@@ -373,12 +347,6 @@ localparam integer TCP_OPEN_PORT_STAT_REG                   = 13;
 localparam integer TCP_OPEN_CONN_REG                        = 14;
 localparam integer TCP_OPEN_CONN_STAT_REG                   = 15;
 
-
-// 53 (RW): IO Switch
-localparam integer IO_SWITCH_REG                            = 53;
-
-localparam integer EP_CTRL_BASE_REG = 54;        // Base register for EP control
-
 // 64 (RO) : Status DMA completion
 localparam integer STAT_DMA_REG                             = 2**PID_BITS;
 //
@@ -435,14 +403,6 @@ always_ff @(posedge aclk) begin
         m_rdma_conn_interface.valid <= 1'b0;
 `endif 
 
-`ifdef EN_TCP
-        m_open_port_cmd.valid <= 1'b0;
-        m_open_conn_cmd.valid <= 1'b0;
-
-        open_port_sts.ready <= 1'b0;
-        open_conn_sts.ready <= 1'b0;
-`endif
-
     end
     else begin
 
@@ -477,14 +437,6 @@ always_ff @(posedge aclk) begin
 `ifdef EN_RDMA
         m_rdma_qp_interface.valid <= m_rdma_qp_interface.ready ? 1'b0 : m_rdma_qp_interface.valid;
         m_rdma_conn_interface.valid <= m_rdma_conn_interface.ready ? 1'b0 : m_rdma_conn_interface.valid;
-`endif
-
-`ifdef EN_TCP
-        m_open_port_cmd.valid <= m_open_port_cmd.ready ? 1'b0 : m_open_port_cmd.valid;
-        m_open_conn_cmd.valid <= m_open_conn_cmd.ready ? 1'b0 : m_open_conn_cmd.valid;
-
-        open_port_sts.ready <= 1'b0;
-        open_conn_sts.ready <= 1'b0;
 `endif
 
 `ifdef EN_MEM                
@@ -547,7 +499,7 @@ always_ff @(posedge aclk) begin
 
             slv_reg[STAT_REG_1][STAT_PFAULT_OFFS+:32] <=  slv_reg[STAT_REG_1][STAT_PFAULT_OFFS+:32] + 1;
         end
-        else if(s_notify.valid & ~irq_pending) begin
+        else if(notify_irq.valid & ~irq_pending) begin
             irq_pending <= 1'b1;
             notify_irq.ready <= 1'b1;
 
@@ -603,14 +555,17 @@ always_ff @(posedge aclk) begin
                     end
                 end
 
-                ISR_REG: // ISR
+                ISR_REG: begin // ISR
                     for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
                         if(s_axim_ctrl.wstrb[i]) begin
                             slv_reg[ISR_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
                         end
+                    end
 
+                    if (s_axim_ctrl.wstrb[0] == 1'b1) begin
                         invldt_post <= s_axim_ctrl.wdata[ISR_INVLDT];
                     end
+                end
 
 `ifdef EN_WB
                 WBACK_REG: // Writeback
@@ -666,46 +621,6 @@ always_ff @(posedge aclk) begin
                         end
                     end
 `endif 
-
-`ifdef EN_TCP
-                TCP_OPEN_PORT_REG: // Open port command
-                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
-                        if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[TCP_OPEN_PORT_CMD_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
-                            m_open_port_cmd.valid <= 1'b1;
-                        end
-                    end
-                TCP_OPEN_PORT_STAT_REG: // Open port status
-                    if(s_axim__ctrl.wstrb[0]) begin
-                        open_port_sts.ready <= s_axim__ctrl.wdata[0];
-                    end
-                TCP_OPEN_CONN_REG: // Open conn command
-                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
-                        if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[TCP_OPEN_CONN_CMD_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
-                            m_open_conn_cmd.valid <= 1'b1;
-                        end
-                    end
-                TCP_OPEN_CONN_STAT_REG: // Open port status
-                    if(s_axim_ctrl.wstrb[0]) begin
-                        open_conn_sts.ready <= s_axim_ctrl.wdata[0];
-                    end
-`endif 
-
-                IO_SWITCH_REG: // IO switch configure
-                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
-                        if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[IO_SWITCH_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
-                        end
-                    end
-
-                EP_CTRL_BASE_REG:
-                    // Write to EP control registers
-                    for (int i = 0; i < AVX_DATA_BITS/8; i++) begin
-                        if(s_axim_ctrl.wstrb[i]) begin
-                            slv_reg[EP_CTRL_BASE_REG][(i*8)+:8] <= s_axim_ctrl.wdata[(i*8)+:8];
-                        end
-                    end
 
                 default: ;
             endcase
@@ -782,24 +697,6 @@ always_ff @(posedge aclk) begin
         [RDMA_CONN_REG:RDMA_CONN_REG]:
             axi_rdata[0] <= m_rdma_conn_interface.ready;
 `endif 
-
-`ifdef EN_TCP
-        [TCP_OPEN_PORT_REG:TCP_OPEN_PORT_REG]:
-            axi_rdata[0] <= m_open_port_cmd.ready;
-        [TCP_OPEN_PORT_STAT_REG:TCP_OPEN_PORT_STAT_REG]:
-            axi_rdata[63:0] <= open_port_sts_response;
-        [TCP_OPEN_CONN_REG:TCP_OPEN_CONN_REG]:
-            axi_rdata[0] <= m_open_conn_cmd.ready;
-        [TCP_OPEN_CONN_STAT_REG:TCP_OPEN_CONN_STAT_REG]:
-            axi_rdata[1:0] <= open_port_sts_response[1:0];
-`endif 
-
-        [IO_SWITCH_REG:IO_SWITCH_REG]:
-            axi_rdata <= slv_reg[IO_SWITCH_REG];
-        
-        [EP_CTRL_BASE_REG:EP_CTRL_BASE_REG]:
-            axi_rdata <= slv_reg[EP_CTRL_BASE_REG];
-
         [STAT_DMA_REG:STAT_DMA_REG+(2**PID_BITS)-1]: begin
             axi_mux <= 1'b1; 
         end
@@ -829,8 +726,8 @@ assign rd_clear_addr = slv_reg[CTRL_REG][CTRL_PID_OFFS+:PID_BITS];
 // Completion muxing
 `ifdef EN_STRM
     `ifdef EN_MEM
-        metaIntf #(.STYPE(ack_t)) host_done_rd (.*);
-        metaIntf #(.STYPE(ack_t)) card_done_rd (.*);
+        metaIntf #(.STYPE(ack_t)) host_done_rd ();
+        metaIntf #(.STYPE(ack_t)) card_done_rd ();
 
         queue_stream #(.QTYPE(ack_t), .QDEPTH(8)) inst_host_cmplt_q_rd (
             .aclk(aclk), 
@@ -892,7 +789,7 @@ assign rd_clear_addr = slv_reg[CTRL_REG][CTRL_PID_OFFS+:PID_BITS];
     `endif
 `endif
 
-assign m_bpss_done_rd.valid = meta_done_rd.valid;
+assign m_bpss_done_rd.valid = meta_done_rd.valid & meta_done_rd.ready;
 assign m_bpss_done_rd.data  = meta_done_rd.data;
 
 always_ff @(posedge aclk) begin
@@ -932,8 +829,8 @@ assign wr_clear_addr = slv_reg[CTRL_REG][WR_OFFS+CTRL_PID_OFFS+:PID_BITS];
 // Completion muxing
 `ifdef EN_STRM
     `ifdef EN_MEM
-        metaIntf #(.STYPE(ack_t)) host_done_wr (.*);
-        metaIntf #(.STYPE(ack_t)) card_done_wr (.*);
+        metaIntf #(.STYPE(ack_t)) host_done_wr ();
+        metaIntf #(.STYPE(ack_t)) card_done_wr ();
 
         queue_stream #(.QTYPE(ack_t), .QDEPTH(8)) inst_host_cmplt_q_wr (
             .aclk(aclk), 
@@ -995,7 +892,7 @@ assign wr_clear_addr = slv_reg[CTRL_REG][WR_OFFS+CTRL_PID_OFFS+:PID_BITS];
     `endif
 `endif
 
-assign m_bpss_done_wr.valid = meta_done_wr.valid;
+assign m_bpss_done_wr.valid = meta_done_wr.valid & meta_done_wr.ready;
 assign m_bpss_done_wr.data  = meta_done_wr.data;
 
 always_ff @(posedge aclk) begin
@@ -1068,19 +965,8 @@ assign pfault_wr_ctrl.data = slv_reg[ISR_REG][ISR_SUCCESS];
 
 assign usr_irq = irq_pending;
 
-// IO control
-assign io_ctrl = slv_reg[IO_SWITCH_REG][13:0];
-assign ep_ctrl = slv_reg[EP_CTRL_BASE_REG][98:0];  // 99-bit endpoint control
-// Route ID uses bits [13:0] from the same IO_SWITCH_REG, since route_id and io_ctrl
-// can share the same register (both are 14-bit and serve vIO Switch control)
-assign route_id = slv_reg[IO_SWITCH_REG][27:14];  // Upper bits of IO_SWITCH_REG for route_id
-(* mark_debug = "true" *) logic [OFFS_BITS-1:0] req_1_offs, req_2_offs;
-
-assign req_1_offs = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
-assign req_2_offs = slv_reg[CTRL_REG][WR_OFFS+CTRL_OFFS_OFFS+:OFFS_BITS];
-
 // Host request
-metaIntf #(.STYPE(dreq_t)) host_req (.*);
+metaIntf #(.STYPE(dreq_t)) host_req ();
 
 assign host_req.data.req_1.opcode       = slv_reg[CTRL_REG][CTRL_OPCODE_OFFS+:OPCODE_BITS];
 assign host_req.data.req_1.strm         = slv_reg[CTRL_REG][CTRL_STRM_OFFS+:STRM_BITS];
@@ -1095,7 +981,7 @@ assign host_req.data.req_1.actv         = slv_reg[CTRL_REG][CTRL_ACTV_OFFS];
 assign host_req.data.req_1.host         = 1'b1; // RSRVD
 assign host_req.data.req_1.vaddr        = slv_reg[CTRL_REG][CTRL_VADDR_OFFS+:VADDR_BITS];
 assign host_req.data.req_1.len          = slv_reg[CTRL_REG][CTRL_LEN_OFFS+:LEN_BITS];
-assign host_req.data.req_1.offs         = slv_reg[CTRL_REG][CTRL_OFFS_OFFS+:OFFS_BITS];
+assign host_req.data.req_1.offs         = 0;
 assign host_req.data.req_1.rsrvd        = 0;
 
 assign host_req.data.req_2.opcode       = slv_reg[CTRL_REG][WR_OFFS+CTRL_OPCODE_OFFS+:OPCODE_BITS];
@@ -1111,7 +997,7 @@ assign host_req.data.req_2.actv         = slv_reg[CTRL_REG][WR_OFFS+CTRL_ACTV_OF
 assign host_req.data.req_2.host         = 1'b1; // RSRVD
 assign host_req.data.req_2.vaddr        = slv_reg[CTRL_REG][WR_OFFS+CTRL_VADDR_OFFS+:VADDR_BITS]; 
 assign host_req.data.req_2.len          = slv_reg[CTRL_REG][WR_OFFS+CTRL_LEN_OFFS+:LEN_BITS];
-assign host_req.data.req_2.offs         = slv_reg[CTRL_REG][WR_OFFS+CTRL_OFFS_OFFS+:OFFS_BITS];
+assign host_req.data.req_2.offs         = 0;
 assign host_req.data.req_2.rsrvd        = 0;
 
 assign host_req.valid = local_post || remote_post;
@@ -1290,40 +1176,6 @@ assign m_rdma_conn_interface.data.remote_udp_port       = slv_reg[RDMA_CONN_REG]
 // ---------------------------------------------------------------------------------------- 
 // TCP/IP
 // ----------------------------------------------------------------------------------------
-`ifdef EN_TCP
-
-// Open 
-assign m_open_port_cmd.data.ip_port = slv_reg[TCP_OPEN_PORT_REG][32+:TCP_IP_PORT_BITS];
-assign m_open_port_cmd.data.vfid = ID_REG;
-assign m_open_port_cmd.data.pid = slv_reg[TCP_OPEN_PORT_REG][0+:PID_BITS];
-assign m_open_port_cmd.data.dest = slv_reg[TCP_OPEN_PORT_REG][PID_BITS+:DEST_BITS];
-
-assign m_open_conn_cmd.data.ip_address = slv_reg[TCP_OPEN_CONN_REG][0+:32];
-assign m_open_conn_cmd.data.ip_port = slv_reg[TCP_OPEN_CONN_REG][32+:16]; // Session ID for close
-assign m_open_conn_cmd.data.vfid = ID_REG;
-assign m_open_conn_cmd.data.pid = slv_reg[TCP_OPEN_CONN_REG][48+:PID_BITS];
-assign m_open_conn_cmd.data.dest = slv_reg[TCP_OPEN_CONN_REG][48+PID_BITS+:DEST_BITS];
-assign m_open_conn_cmd.data.close = slv_reg[TCP_OPEN_CONN_REG][48+PID_BITS+DEST_BITS+:1];
-
-// Open sts
-metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_port_sts (.*);
-metaIntf #(.STYPE(tcp_open_rsp_r_t)) open_conn_sts (.*);
-
-queue_meta #(.QDEPTH(16)) inst_open_port_q (.aclk(aclk), .aresetn(aresetn), .s_meta(s_open_port_sts), .m_meta(open_port_sts));
-queue_meta #(.QDEPTH(16)) inst_open_conn_q (.aclk(aclk), .aresetn(aresetn), .s_meta(s_open_conn_sts), .m_meta(open_conn_sts));
-
-always_comb begin
-    open_port_sts_response[0] = open_port_sts.data.open_port_success;
-    open_port_sts_response[1] = open_port_sts.valid;
-end
-
-always_comb begin
-    open_conn_sts_response[0] = open_conn_sts.data.success;
-    open_conn_sts_response[1] = open_conn_sts.valid;
-    open_conn_sts_response[16+:PID_BITS] = open_conn_sts.data.pid;
-end
-
-`endif
 
 // ---------------------------------------------------------------------------------------- 
 // Writeback

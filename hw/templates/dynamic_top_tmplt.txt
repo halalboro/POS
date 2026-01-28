@@ -97,24 +97,6 @@ module design_dynamic_top #(
     AXI4S.m                                     m_axis_tcp,
 
 {% endif %}
-{% if cnfg.en_bypass %}
-    // Bypass (raw Ethernet - independent from RDMA)
-    metaIntf.m                                  m_bypass_qp_interface,
-    metaIntf.m                                  m_bypass_conn_interface,
-    metaIntf.m                                  m_bypass_sq,
-    metaIntf.s                                  s_bypass_rq_rd,
-    metaIntf.s                                  s_bypass_rq_wr,
-    AXI4S.s                                     s_axis_bypass,
-    AXI4S.m                                     m_axis_bypass_rd_rsp,
-
-{% endif %}
-{% if cnfg.en_sniffer %}
-    // Sniffer
-    AXI4S.s                                     s_rx_sniffer,
-    AXI4S.s                                     s_tx_sniffer,
-    metaIntf.m                                  m_filter_config,
-
-{% endif %}
 {% if cnfg.en_wb %}
     // Writeback
     metaIntf.m                                  m_wback,
@@ -126,13 +108,6 @@ module design_dynamic_top #(
     // IRQ
     output logic[N_REGIONS-1:0]                 m_usr_irq,
 
-{% if cnfg.en_rdma %}
-    // Debug counters
-    output logic [31:0]                         o_wrapper_sink_counter [N_REGIONS],
-    output logic [31:0]                         o_user_recv_counter [N_REGIONS],
-    output logic [31:0]                         o_user_send_counter [N_REGIONS],
-
-{% endif %}
     // Debug
     input  logic [N_REGIONS-1:0]                S_BSCAN_drck,
     input  logic [N_REGIONS-1:0]                S_BSCAN_shift,
@@ -154,18 +129,9 @@ module design_dynamic_top #(
     input  logic                                uresetn,
     input  logic                                uclk
 );
-
-{% if cnfg.en_rdma %}
+	
     // ================-----------------------------------------------------------------
-    // DEBUG COUNTERS FROM USER WRAPPER
-    // ================-----------------------------------------------------------------
-    logic [31:0] wrapper_sink_counter [N_REGIONS];
-    logic [31:0] user_recv_counter [N_REGIONS];
-    logic [31:0] user_send_counter [N_REGIONS];
-
-{% endif %}
-    // ================-----------------------------------------------------------------
-    // DECOUPLING
+    // DECOUPLING 
     // ================-----------------------------------------------------------------
 
     // Decoupling signals
@@ -292,97 +258,6 @@ module design_dynamic_top #(
 
     axis_decoupler inst_host_dcpl_in  (.decouple(decouple_uclk), .s_axis(axis_host_in_s4),    .m_axis(axis_host_in_ul));
     axis_decoupler inst_host_dcpl_out (.decouple(decouple_uclk), .s_axis(axis_host_out_ul), .m_axis(axis_host_out_s4));
-
-    logic [N_REGIONS-1:0][13:0]   io_ctrl_switch;
-    logic [N_REGIONS-1:0][13:0]   route_dtu_in;
-    logic [N_REGIONS-1:0][13:0]   route_dtu_out;
-    logic [N_REGIONS-1:0][1:0]   port_dtu_in;
-    logic [N_REGIONS-1:0][1:0]   port_dtu_out;
-
-    AXI4SR axisr_ul_out [N_REGIONS] ();
-    AXI4SR axisr_ul_in [N_REGIONS] ();
-    AXI4SR axisr_dtu_in [N_REGIONS] ();
-    AXI4SR axisr_dtu_out [N_REGIONS] ();
-
-    // Network stack interfaces for vIO Switch (2N+5 ports)
-    // ALL network data flows through vIO Switch for flexible routing between vFPGAs.
-    // Metadata (sq, cq, rq_rd, rq_wr) still goes through per-region metadata arbiters.
-    // RDMA: 3 ports (RX from stack, TX_REQ to stack, TX_RSP to stack)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_rx_to_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_rx_from_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_req_to_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_req_from_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_rsp_to_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_rsp_from_switch ();
-    // TCP: 1 port
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_to_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_from_switch ();
-    // Bypass: 1 port (for raw network access, shares RDMA interfaces when EN_BYPASS enabled)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_to_switch ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_from_switch ();
-
-{% if not cnfg.en_rdma %}
-    assign axisr_rdma_rx_to_switch.tdata = '0;
-    assign axisr_rdma_rx_to_switch.tkeep = '0;
-    assign axisr_rdma_rx_to_switch.tlast = 1'b0;
-    assign axisr_rdma_rx_to_switch.tvalid = 1'b0;
-    assign axisr_rdma_rx_to_switch.tid = '0;
-    assign axisr_rdma_rx_to_switch.tdest = '0;
-    assign axisr_rdma_rx_from_switch.tready = 1'b1;
-    assign axisr_rdma_tx_req_to_switch.tdata = '0;
-    assign axisr_rdma_tx_req_to_switch.tkeep = '0;
-    assign axisr_rdma_tx_req_to_switch.tlast = 1'b0;
-    assign axisr_rdma_tx_req_to_switch.tvalid = 1'b0;
-    assign axisr_rdma_tx_req_to_switch.tid = '0;
-    assign axisr_rdma_tx_req_to_switch.tdest = '0;
-    assign axisr_rdma_tx_req_from_switch.tready = 1'b1;
-    assign axisr_rdma_tx_rsp_to_switch.tdata = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tkeep = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tlast = 1'b0;
-    assign axisr_rdma_tx_rsp_to_switch.tvalid = 1'b0;
-    assign axisr_rdma_tx_rsp_to_switch.tid = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tdest = '0;
-    assign axisr_rdma_tx_rsp_from_switch.tready = 1'b1;
-{% endif %}
-{% if not cnfg.en_tcp %}
-    assign axisr_tcp_to_switch.tdata = '0;
-    assign axisr_tcp_to_switch.tkeep = '0;
-    assign axisr_tcp_to_switch.tlast = 1'b0;
-    assign axisr_tcp_to_switch.tvalid = 1'b0;
-    assign axisr_tcp_to_switch.tid = '0;
-    assign axisr_tcp_to_switch.tdest = '0;
-    assign axisr_tcp_from_switch.tready = 1'b1;
-{% endif %}
-{% if not cnfg.en_net %}
-    assign axisr_bypass_to_switch.tdata = '0;
-    assign axisr_bypass_to_switch.tkeep = '0;
-    assign axisr_bypass_to_switch.tlast = 1'b0;
-    assign axisr_bypass_to_switch.tvalid = 1'b0;
-    assign axisr_bypass_to_switch.tid = '0;
-    assign axisr_bypass_to_switch.tdest = '0;
-    assign axisr_bypass_from_switch.tready = 1'b1;
-{% endif %}
-
-	vio_switch_{{ cnfg.n_reg }} inst_vio_switch (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .route_in(route_dtu_out),
-        .route_out(route_dtu_in),
-        .data_host_sink(axis_host_in_ul),
-        .data_host_src(axis_host_out_ul),
-        .data_vfiu_sink(axisr_dtu_out),
-        .data_vfiu_src(axisr_dtu_in),
-        .data_rdma_rx_sink(axisr_rdma_rx_to_switch),
-        .data_rdma_rx_src(axisr_rdma_rx_from_switch),
-        .data_rdma_tx_req_sink(axisr_rdma_tx_req_to_switch),
-        .data_rdma_tx_req_src(axisr_rdma_tx_req_from_switch),
-        .data_rdma_tx_rsp_sink(axisr_rdma_tx_rsp_to_switch),
-        .data_rdma_tx_rsp_src(axisr_rdma_tx_rsp_from_switch),
-        .data_tcp_sink(axisr_tcp_to_switch),
-        .data_tcp_src(axisr_tcp_from_switch),
-        .data_bypass_sink(axisr_bypass_to_switch),
-        .data_bypass_src(axisr_bypass_from_switch)
-    );
 
 {% endif %}	
 {% if cnfg.en_mem %}
@@ -542,10 +417,9 @@ module design_dynamic_top #(
     metaIntf #(.STYPE(ack_t)) rdma_cq_s0  ();
     metaIntf #(.STYPE(req_t)) rdma_rq_rd_s0 ();
     metaIntf #(.STYPE(req_t)) rdma_rq_wr_s0 ();
-    // AXI4SR for vIO Switch routing (tid/tdest carry vfid info)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_in_s0  ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_out_req_s0  ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_out_rsp_s0  ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_in_s0  ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_req_s0  ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_rsp_s0  ();
 
     rdma_slice_array_dyn #(
         .N_STAGES(N_REG_DYN_NET_S0)
@@ -572,95 +446,43 @@ module design_dynamic_top #(
         .m_rdma_cq_u(rdma_cq_s0),
         .m_rdma_rq_rd_u(rdma_rq_rd_s0),
         .m_rdma_rq_wr_u(rdma_rq_wr_s0),
-        .s_axis_rdma_rd_req_u(axisr_rdma_out_req_s0),
-        .s_axis_rdma_rd_rsp_u(axisr_rdma_out_rsp_s0),
-        .m_axis_rdma_wr_u(axisr_rdma_in_s0)
+        .s_axis_rdma_rd_req_u(axis_rdma_out_req_s0),
+        .s_axis_rdma_rd_rsp_u(axis_rdma_out_rsp_s0),
+        .m_axis_rdma_wr_u(axis_rdma_in_s0)
     );
 
-    // Arbitration (metadata only - data flows through vIO Switch)
+    // Arbitrate and parse
     // ----------------------------------------------------------------------
     metaIntf #(.STYPE(dreq_t)) rdma_sq_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) rdma_cq_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) rdma_host_cq_s1 ();
     metaIntf #(.STYPE(req_t)) rdma_rq_rd_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(req_t)) rdma_rq_wr_s1 [N_REGIONS] ();
-
-    // RDMA metadata arbiter - handles ONLY metadata (sq, cq, rq_rd, rq_wr)
-    // Data flows through vIO Switch, not through arbiter
-    rdma_meta_only_arbiter inst_rdma_meta_arbiter (
-        .aclk(aclk),
-        .aresetn(aresetn),
-
-        // Network side (metadata only)
-        .m_rdma_sq_net(rdma_sq_s0),
-        .s_rdma_cq_net(rdma_cq_s0),
-        .s_rdma_rq_rd_net(rdma_rq_rd_s0),
-        .s_rdma_rq_wr_net(rdma_rq_wr_s0),
-
-        // User side (metadata only)
-        .s_rdma_sq_user(rdma_sq_s1),
-        .m_rdma_cq_user(rdma_cq_s1),
-        .m_rdma_host_cq_user(rdma_host_cq_s1),
-        .m_rdma_rq_rd_user(rdma_rq_rd_s1),
-        .m_rdma_rq_wr_user(rdma_rq_wr_s1)
-    );
-
-    // ================-----------------------------------------------------------------
-    // RDMA vIO Switch connections (DATA PATH)
-    // ================-----------------------------------------------------------------
-    // ALL RDMA data flows through vIO Switch for flexible routing between vFPGAs
-    // RX: RDMA Stack → vIO Switch (RDMA_RX port) → routes to vFIU ports based on tdest
-    // TX: vFIU ports → vIO Switch → routes to RDMA_TX ports based on tdest → RDMA Stack
-
-    // RX write data: RDMA Stack → vIO Switch
-    // axisr_rdma_in_s0 carries tdest set by RDMA stack (based on QP's vfid)
-    `AXISR_ASSIGN(axisr_rdma_in_s0, axisr_rdma_rx_to_switch)
-    
-    assign axisr_rdma_rx_from_switch.tready = 1'b1;
-
-    // TX read request data: vIO Switch → RDMA Stack
-    // vFIU sends data with tdest pointing to RDMA_TX_REQ port, switch routes it here
-    `AXISR_ASSIGN(axisr_rdma_tx_req_from_switch, axisr_rdma_out_req_s0)
-    // No input to TX_REQ port from outside (vFIUs route through their own ports)
-    assign axisr_rdma_tx_req_to_switch.tvalid = 1'b0;
-    assign axisr_rdma_tx_req_to_switch.tdata = '0;
-    assign axisr_rdma_tx_req_to_switch.tkeep = '0;
-    assign axisr_rdma_tx_req_to_switch.tlast = 1'b0;
-    assign axisr_rdma_tx_req_to_switch.tid = '0;
-    assign axisr_rdma_tx_req_to_switch.tdest = '0;
-
-    // TX read response data: vIO Switch → RDMA Stack
-    `AXISR_ASSIGN(axisr_rdma_tx_rsp_from_switch, axisr_rdma_out_rsp_s0)
-    // No input to TX_RSP port from outside
-    assign axisr_rdma_tx_rsp_to_switch.tvalid = 1'b0;
-    assign axisr_rdma_tx_rsp_to_switch.tdata = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tkeep = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tlast = 1'b0;
-    assign axisr_rdma_tx_rsp_to_switch.tid = '0;
-    assign axisr_rdma_tx_rsp_to_switch.tdest = '0;
-
-    // ================-----------------------------------------------------------------
-    // Per-region RDMA data arrays (tied off - data flows through vIO Switch)
-    // ================-----------------------------------------------------------------
-    // With vIO Switch routing, RDMA data is NOT routed directly to user_wrapper.
-    // Instead: RDMA Stack <-> vIO Switch <-> vFIU <-> axis_host_recv/send <-> user logic
-    // The per-region data arrays are kept for compatibility but tied off.
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_in_s1 [N_REGIONS] ();
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_req_s1 [N_REGIONS] ();
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_rsp_s1 [N_REGIONS] ();
 
-    // Tie off per-region RDMA data arrays (no data flows through these anymore)
-    for(genvar i = 0; i < N_REGIONS; i++) begin : gen_rdma_data_tieoff
-        // RX data tie-off (sink side - drive tvalid low, tready comes from downstream)
-        assign axis_rdma_in_s1[i].tvalid = 1'b0;
-        assign axis_rdma_in_s1[i].tdata = '0;
-        assign axis_rdma_in_s1[i].tkeep = '0;
-        assign axis_rdma_in_s1[i].tlast = 1'b0;
+    rdma_arbiter (
+        .aclk(aclk),
+        .aresetn(aresetn),
 
-        // TX data tie-off (source side - accept any data by driving tready high)
-        assign axis_rdma_out_req_s1[i].tready = 1'b1;
-        assign axis_rdma_out_rsp_s1[i].tready = 1'b1;
-    end
+        .m_rdma_sq_net(rdma_sq_s0),
+        .s_rdma_cq_net(rdma_cq_s0),
+        .s_rdma_rq_rd_net(rdma_rq_rd_s0), 
+        .s_rdma_rq_wr_net(rdma_rq_wr_s0), 
+        .m_axis_rdma_rd_req_net(axis_rdma_out_req_s0),
+        .m_axis_rdma_rd_rsp_net(axis_rdma_out_rsp_s0),
+        .s_axis_rdma_wr_net(axis_rdma_in_s0),
+
+        .s_rdma_sq_user(rdma_sq_s1),
+        .m_rdma_cq_user(rdma_cq_s1),
+        .m_rdma_host_cq_user(rdma_host_cq_s1),
+        .m_rdma_rq_rd_user(rdma_rq_rd_s1), 
+        .m_rdma_rq_wr_user(rdma_rq_wr_s1), 
+        .s_axis_rdma_rd_req_user(axis_rdma_out_req_s1),
+        .s_axis_rdma_rd_rsp_user(axis_rdma_out_rsp_s1),
+        .m_axis_rdma_wr_user(axis_rdma_in_s1)
+    );
 
     // Clock crossing (if enabled)
     // ----------------------------------------------------------------------
@@ -682,17 +504,17 @@ module design_dynamic_top #(
             .aresetn(uresetn),
 
             .m_rdma_sq_nclk(rdma_sq_s1[i]),
-            .s_rdma_cq_nclk(rdma_cq_s1[i]),
-            .s_rdma_rq_rd_nclk(rdma_rq_rd_s1[i]),
-            .s_rdma_rq_wr_nclk(rdma_rq_wr_s1[i]),
+            .s_rdma_ack_nclk(rdma_cq_s1[i]),
+            .s_rdma_rd_req_nclk(rdma_rq_rd_s1[i]),
+            .s_rdma_wr_req_nclk(rdma_rq_wr_s1[i]),
             .m_axis_rdma_rd_req_nclk(axis_rdma_out_req_s1[i]),
             .m_axis_rdma_rd_rsp_nclk(axis_rdma_out_rsp_s1[i]),
             .s_axis_rdma_wr_nclk(axis_rdma_in_s1[i]),
 
             .s_rdma_sq_aclk(rdma_sq_s2[i]),
-            .m_rdma_cq_aclk(rdma_cq_s2[i]),
-            .m_rdma_rq_rd_aclk(rdma_rq_rd_s2[i]),
-            .m_rdma_rq_wr_aclk(rdma_rq_wr_s2[i]),
+            .m_rdma_ack_aclk(rdma_cq_s2[i]),
+            .m_rdma_rd_req_aclk(rdma_rq_rd_s2[i]),
+            .m_rdma_wr_req_aclk(rdma_rq_wr_s2[i]),
             .s_axis_rdma_rd_req_aclk(axis_rdma_out_req_s2[i]),
             .s_axis_rdma_rd_rsp_aclk(axis_rdma_out_rsp_s2[i]),
             .m_axis_rdma_wr_aclk(axis_rdma_in_s2[i])
@@ -778,16 +600,6 @@ module design_dynamic_top #(
     
     // Slice 0
     // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_port_cmd();
-    metaIntf #(.STYPE(tcp_listen_rsp_t)) open_port_sts();
-    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_conn_cmd();
-    metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_conn_sts();
-
-    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_port_cmd_s0();
-    metaIntf #(.STYPE(tcp_listen_rsp_t)) open_port_sts_s0();
-    metaIntf #(.STYPE(tcp_listen_req_r_t)) open_conn_cmd_s0();
-    metaIntf #(.STYPE(tcp_listen_rsp_r_t)) open_conn_sts_s0();
-
     metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_s0();
     metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_s0();
     metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_s0();
@@ -798,20 +610,14 @@ module design_dynamic_top #(
     metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_s0 ();
     metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_s0 ();
     metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_s0 ();
-    // AXI4SR for vIO Switch routing (tid/tdest carry vfid info)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_in_s0 ();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_out_s0 ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s0 ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s0 ();
     
-    tcp_slice_array_dyn #(
+    tcp_slice_array_net #(
         .N_STAGES(N_REG_DYN_NET_S0)
     ) inst_tcp_slice_array (
         .aclk(aclk),
         .aresetn(aresetn),
-        
-        .s_tcp_open_port_cmd_n(open_port_cmd),
-        .m_tcp_open_port_sts_n(open_port_sts),
-        .s_tcp_open_conn_cmd_n(open_conn_cmd),
-        .m_tcp_open_conn_sts_n(open_conn_sts),
 
         .m_tcp_listen_req_n(m_tcp_listen_req),
         .s_tcp_listen_rsp_n(s_tcp_listen_rsp),
@@ -826,11 +632,6 @@ module design_dynamic_top #(
         .s_axis_tcp_rx_n(s_axis_tcp),
         .m_axis_tcp_tx_n(m_axis_tcp),
 
-        .m_tcp_open_port_cmd_n(open_port_cmd_s0),
-        .s_tcp_open_port_sts_n(open_port_sts_s0),
-        .m_tcp_open_conn_cmd_n(open_conn_cmd_s0),
-        .s_tcp_open_conn_sts_n(open_conn_sts_s0),
-
         .s_tcp_listen_req_u(tcp_listen_req_s0),
         .m_tcp_listen_rsp_u(tcp_listen_rsp_s0),
         .s_tcp_open_req_u(tcp_open_req_s0),
@@ -841,19 +642,26 @@ module design_dynamic_top #(
         .m_tcp_rx_meta_u(tcp_rx_meta_s0),
         .s_tcp_tx_meta_u(tcp_tx_meta_s0),
         .m_tcp_tx_stat_u(tcp_tx_stat_s0),
-        .m_axis_tcp_rx_u(axisr_tcp_in_s0),
-        .s_axis_tcp_tx_u(axisr_tcp_out_s0)
-    );
+        .m_axis_tcp_rx_u(axis_tcp_in_s0),
+        .s_axis_tcp_tx_u(axis_tcp_out_s0)
+    );		
 
     // Arbitration
     // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(req_t)) tcp_rq_s1 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) tcp_sq_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_s1[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_s1[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_s1[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_rsp_t)) tcp_open_rsp_s1[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_close_req_t)) tcp_close_req_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_notify_t)) tcp_notify_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rd_pkg_t)) tcp_rd_pkg_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_s1 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_s1 [N_REGIONS]();
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s1 [N_REGIONS]();
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s1 [N_REGIONS]();
 
-    // TCP arbiter handles metadata arbitration and data muxing
-    // Network-side uses AXI4SR with tid/tdest for vIO Switch routing
+
     tcp_arbiter inst_tcp_arbiter (
         .aclk(aclk),
         .aresetn(aresetn),
@@ -868,63 +676,37 @@ module design_dynamic_top #(
         .s_tcp_rx_meta_net(tcp_rx_meta_s0),
         .m_tcp_tx_meta_net(tcp_tx_meta_s0),
         .s_tcp_tx_stat_net(tcp_tx_stat_s0),
-        .s_axis_tcp_rx_net(axisr_tcp_in_s0),
-        .m_axis_tcp_tx_net(axisr_tcp_out_s0),
+        .s_axis_tcp_rx_net(axis_tcp_in_s0),
+        .m_axis_tcp_tx_net(axis_tcp_out_s0),
 
-        .s_tcp_listen_req_host(tcp_open_port_cmd_s0),
-        .m_tcp_listen_rsp_host(tcp_open_port_sts_s0),
-        .s_tcp_open_req_host(tcp_open_conn_cmd_s0),
-        .m_tcp_open_rsp_host(tcp_open_conn_sts_s0),
-        .m_tcp_rx_meta_user(tcp_rq_s1),
-        .s_tcp_tx_meta_user(tcp_sq_s1),
+        .s_tcp_listen_req_user(tcp_listen_req_s1),
+        .m_tcp_listen_rsp_user(tcp_listen_rsp_s1),
+        .s_tcp_open_req_user(tcp_open_req_s1),
+        .m_tcp_open_rsp_user(tcp_open_rsp_s1),
+        .s_tcp_close_req_user(tcp_close_req_s1),
+        .m_tcp_notify_user(tcp_notify_s1),
+        .s_tcp_rd_pkg_user(tcp_rd_pkg_s1),
+        .m_tcp_rx_meta_user(tcp_rx_meta_s1),
+        .s_tcp_tx_meta_user(tcp_tx_meta_s1),
+        .m_tcp_tx_stat_user(tcp_tx_stat_s1),
         .m_axis_tcp_rx_user(axis_tcp_in_s1),
         .s_axis_tcp_tx_user(axis_tcp_out_s1)
     );
 
-    // ================-----------------------------------------------------------------
-    // TCP vIO Switch connections (DATA PATH)
-    // ================-----------------------------------------------------------------
-    // ALL TCP data flows through vIO Switch for flexible routing between vFPGAs
-    // RX: TCP Stack → vIO Switch (TCP port) → routes to vFIU ports based on tdest
-    // TX: vFIU ports → vIO Switch → routes to TCP port based on tdest → TCP Stack
-
-    // RX data: TCP Stack → vIO Switch
-    // axisr_tcp_in_s0 carries tdest set by TCP stack (based on connection's vfid)
-    `AXISR_ASSIGN(axisr_tcp_in_s0, axisr_tcp_to_switch)
-    
-    assign axisr_tcp_from_switch.tready = 1'b1;
-
-    // TX data: vIO Switch → TCP Stack
-    // vFIU sends data with tdest pointing to TCP port, switch routes it here
-    `AXISR_ASSIGN(axisr_tcp_from_switch, axisr_tcp_out_s0)
-
-    // ================-----------------------------------------------------------------
-    // Per-region TCP data arrays (tied off - data flows through vIO Switch)
-    // ================-----------------------------------------------------------------
-    // With vIO Switch routing, TCP data is NOT routed directly to user_wrapper.
-    // Instead: TCP Stack <-> vIO Switch <-> vFIU <-> axis_host_recv/send <-> user logic
-    // The per-region data arrays are kept for compatibility but tied off.
-
-    // Tie off per-region TCP data arrays (no data flows through these anymore)
-    for(genvar i = 0; i < N_REGIONS; i++) begin : gen_tcp_data_tieoff
-        // RX data tie-off (sink side - drive tvalid low)
-        assign axis_tcp_in_s1[i].tvalid = 1'b0;
-        assign axis_tcp_in_s1[i].tdata = '0;
-        assign axis_tcp_in_s1[i].tkeep = '0;
-        assign axis_tcp_in_s1[i].tlast = 1'b0;
-        assign axis_tcp_in_s1[i].tid = '0;
-        assign axis_tcp_in_s1[i].tdest = '0;
-
-        // TX data tie-off (source side - accept any data)
-        assign axis_tcp_out_s1[i].tready = 1'b1;
-    end
-
     // Clock crossing (if enabled)
     // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(req_t)) tcp_rq_s2 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) tcp_sq_s2 [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s2 [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_s2[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_s2[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_s2[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_rsp_t)) tcp_open_rsp_s2[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_close_req_t)) tcp_close_req_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_notify_t)) tcp_notify_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rd_pkg_t)) tcp_rd_pkg_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_s2 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_s2 [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s2 [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s2 [N_REGIONS]();
 
 {% if cnfg.en_uclk %}
     // Cross to UCLK
@@ -935,13 +717,30 @@ module design_dynamic_top #(
             .aclk(uclk),
             .aresetn(uresetn),
 
-            .s_tcp_rq_nclk(tcp_rq_s1[i]),
-            .m_tcp_sq_nclk(tcp_sq_s1[i]),
+            .m_tcp_listen_req_nclk(tcp_listen_req_s1[i]),
+            .s_tcp_listen_rsp_nclk(tcp_listen_rsp_s1[i]),
+            .m_tcp_open_req_nclk(tcp_open_req_s1[i]),
+            .s_tcp_open_rsp_nclk(tcp_open_rsp_s1[i]),
+            .m_tcp_close_req_nclk(tcp_close_req_s1[i]),
+            .s_tcp_notify_nclk(tcp_notify_s1[i]),
+            .m_tcp_rd_pkg_nclk(tcp_rd_pkg_s1[i]),
+            .s_tcp_rx_meta_nclk(tcp_rx_meta_s1[i]),
+            .m_tcp_tx_meta_nclk(tcp_tx_meta_s1[i]),
+            .s_tcp_tx_stat_nclk(tcp_tx_stat_s1[i]),
             .s_axis_tcp_rx_nclk(axis_tcp_in_s1[i]),
             .m_axis_tcp_tx_nclk(axis_tcp_out_s1[i]),
 
-            .m_tcp_rq_aclk(tcp_rq_s2[i]),
-            .s_tcp_sq_aclk(tcp_sq_s2[i]),
+
+            .s_tcp_listen_req_aclk(tcp_listen_req_s2[i]),
+            .m_tcp_listen_rsp_aclk(tcp_listen_rsp_s2[i]),
+            .s_tcp_open_req_aclk(tcp_open_req_s2[i]),
+            .m_tcp_open_rsp_aclk(tcp_open_rsp_s2[i]),
+            .s_tcp_close_req_aclk(tcp_close_req_s2[i]),
+            .m_tcp_notify_aclk(tcp_notify_s2[i]),
+            .s_tcp_rd_pkg_aclk(tcp_rd_pkg_s2[i]),
+            .m_tcp_rx_meta_aclk(tcp_rx_meta_s2[i]),
+            .s_tcp_tx_meta_aclk(tcp_tx_meta_s2[i]),
+            .m_tcp_tx_stat_aclk(tcp_tx_stat_s2[i]),
             .m_axis_tcp_rx_aclk(axis_tcp_in_s2[i]),
             .s_axis_tcp_tx_aclk(axis_tcp_out_s2[i])
         );
@@ -950,20 +749,36 @@ module design_dynamic_top #(
 {% else %}
     // No crossing
     for(genvar i = 0; i < N_REGIONS; i++) begin
-        `META_ASSIGN(tcp_0_rq_s1[i], tcp_0_rq_s2[i])
-        `META_ASSIGN(tcp_0_sq_s2[i], tcp_0_sq_s1[i])
-        `AXISR_ASSIGN(axis_tcp_0_in_s1[i], axis_tcp_0_in_s2[i])
-        `AXISR_ASSIGN(axis_tcp_0_out_s2[i], axis_tcp_0_out_s1[i])
+        `META_ASSIGN(tcp_listen_req_s2[i], tcp_listen_req_s1[i])
+        `META_ASSIGN(tcp_listen_rsp_s1[i], tcp_listen_rsp_s2[i])
+        `META_ASSIGN(tcp_open_req_s2[i], tcp_open_req_s1[i])
+        `META_ASSIGN(tcp_open_rsp_s1[i], tcp_open_rsp_s2[i])
+        `META_ASSIGN(tcp_close_req_s2[i], tcp_close_req_s1[i])        
+        `META_ASSIGN(tcp_notify_s1[i], tcp_notify_s2[i])
+        `META_ASSIGN(tcp_rd_pkg_s2[i], tcp_rd_pkg_s1[i])
+        `META_ASSIGN(tcp_rx_meta_s1[i], tcp_rx_meta_s2[i])
+        `META_ASSIGN(tcp_tx_meta_s2[i], tcp_tx_meta_s1[i])
+        `META_ASSIGN(tcp_tx_stat_s1[i], tcp_tx_stat_s2[i])
+        `AXIS_ASSIGN(axis_tcp_in_s1[i], axis_tcp_in_s2[i])
+        `AXIS_ASSIGN(axis_tcp_out_s2[i], axis_tcp_out_s1[i])
     end
 
 {% endif %}	
 
     // Slice 1
     // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(req_t)) tcp_rq_s3 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) tcp_sq_s3 [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s3 [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_s3[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_s3[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_s3[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_rsp_t)) tcp_open_rsp_s3[N_REGIONS]();
+    metaIntf #(.STYPE(tcp_close_req_t)) tcp_close_req_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_notify_t)) tcp_notify_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rd_pkg_t)) tcp_rd_pkg_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_s3 [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_s3 [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s3 [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s3 [N_REGIONS]();
 
     for(genvar i = 0; i < N_REGIONS; i++) begin
         tcp_slice_array_ul #(
@@ -977,13 +792,29 @@ module design_dynamic_top #(
             .aresetn(aresetn),
 {% endif %}
             
-            .s_tcp_rq_n(tcp_rq_s2[i]),
-            .m_tcp_sq_n(tcp_sq_s2[i]),
+            .m_tcp_listen_req_n(tcp_listen_req_s2[i]),
+            .s_tcp_listen_rsp_n(tcp_listen_rsp_s2[i]),
+            .m_tcp_open_req_n(tcp_open_req_s2[i]),
+            .s_tcp_open_rsp_n(tcp_open_rsp_s2[i]),
+            .m_tcp_close_req_n(tcp_close_req_s2[i]),
+            .s_tcp_notify_n(tcp_notify_s2[i]),
+            .m_tcp_rd_pkg_n(tcp_rd_pkg_s2[i]),
+            .s_tcp_rx_meta_n(tcp_rx_meta_s2[i]),
+            .m_tcp_tx_meta_n(tcp_tx_meta_s2[i]),
+            .s_tcp_tx_stat_n(tcp_tx_stat_s2[i]),
             .s_axis_tcp_rx_n(axis_tcp_in_s2[i]),
             .m_axis_tcp_tx_n(axis_tcp_out_s2[i]),
 
-            .m_tcp_rq_u(tcp_rq_s3[i]),
-            .s_tcp_sq_u(tcp_sq_s3[i]),
+            .s_tcp_listen_req_u(tcp_listen_req_s3[i]),
+            .m_tcp_listen_rsp_u(tcp_listen_rsp_s3[i]),
+            .s_tcp_open_req_u(tcp_open_req_s3[i]),
+            .m_tcp_open_rsp_u(tcp_open_rsp_s3[i]),
+            .s_tcp_close_req_u(tcp_close_req_s3[i]),
+            .m_tcp_notify_u(tcp_notify_s3[i]),
+            .s_tcp_rd_pkg_u(tcp_rd_pkg_s3[i]),
+            .m_tcp_rx_meta_u(tcp_rx_meta_s3[i]),
+            .s_tcp_tx_meta_u(tcp_tx_meta_s3[i]),
+            .m_tcp_tx_stat_u(tcp_tx_stat_s3[i]),
             .m_axis_tcp_rx_u(axis_tcp_in_s3[i]),
             .s_axis_tcp_tx_u(axis_tcp_out_s3[i])
         );	
@@ -991,228 +822,40 @@ module design_dynamic_top #(
     
     // Decoupling 
     // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(req_t)) tcp_rq_ul [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) tcp_sq_ul [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_ul [N_REGIONS]();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_ul     [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_open_rsp_t)) tcp_open_rsp_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_close_req_t)) tcp_close_req_ul [N_REGIONS]();
+
+    metaIntf #(.STYPE(tcp_notify_t)) tcp_notify_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rd_pkg_t)) tcp_rd_pkg_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_ul [N_REGIONS]();
+    metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_ul [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_ul [N_REGIONS]();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_ul [N_REGIONS]();
     
-    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_rq_s3), .m_meta(tcp_rq_ul));
-    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_sq_ul), .m_meta(tcp_sq_s3));
-    axisr_decoupler (.decouple(decouple_uclk), .s_axis(axis_tcp_in_s3),    .m_axis(axis_tcp_in_ul));
-    axisr_decoupler (.decouple(decouple_uclk), .s_axis(axis_tcp_out_ul), .m_axis(axis_tcp_out_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_listen_req_ul), .m_meta(tcp_listen_req_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_listen_rsp_s3), .m_meta(tcp_listen_rsp_ul));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_open_req_ul),   .m_meta(tcp_open_req_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_open_rsp_s3),   .m_meta(tcp_open_rsp_ul));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_close_req_ul),  .m_meta(tcp_close_req_s3));
 
-{% endif %}
-{% if cnfg.en_bypass %}
-    // ================-----------------------------------------------------------------
-    // BYPASS (Raw Ethernet - independent from RDMA)
-    // ================-----------------------------------------------------------------
-
-    // Slice 0 - Network side interfaces
-    // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(qp_ctx_t)) bypass_qp_interface_s0();
-    metaIntf #(.STYPE(conn_ctx_t)) bypass_conn_interface_s0();
-    metaIntf #(.STYPE(dreq_t)) bypass_sq_s0();
-    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s0();
-    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s0();
-    // AXI4SR for vIO Switch routing (tid/tdest carry vfid info)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_in_s0();
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_out_rsp_s0();
-
-    // Slice array for network-side interfaces
-    bypass_slice_array_dyn #(
-        .N_STAGES(N_REG_DYN_NET_S0)
-    ) inst_bypass_slice_array (
-        .aclk(aclk),
-        .aresetn(aresetn),
-
-        .m_bypass_qp_interface_n(m_bypass_qp_interface),
-        .m_bypass_conn_interface_n(m_bypass_conn_interface),
-        .m_bypass_sq_n(m_bypass_sq),
-        .s_bypass_rq_rd_n(s_bypass_rq_rd),
-        .s_bypass_rq_wr_n(s_bypass_rq_wr),
-        .s_axis_bypass_wr_n(s_axis_bypass),
-        .m_axis_bypass_rd_rsp_n(m_axis_bypass_rd_rsp),
-
-        .s_bypass_qp_interface_u(bypass_qp_interface_s0),
-        .s_bypass_conn_interface_u(bypass_conn_interface_s0),
-        .s_bypass_sq_u(bypass_sq_s0),
-        .m_bypass_rq_rd_u(bypass_rq_rd_s0),
-        .m_bypass_rq_wr_u(bypass_rq_wr_s0),
-        .m_axis_bypass_wr_u(axisr_bypass_in_s0),
-        .s_axis_bypass_rd_rsp_u(axisr_bypass_out_rsp_s0)
-    );
-
-    // Arbitration - Route between regions
-    // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(dreq_t)) bypass_sq_s1 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s1 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s1 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_s1 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_rsp_s1 [N_REGIONS]();
-
-    // Bypass arbiter handles metadata arbitration and data muxing
-    // Network-side uses AXI4SR with tid/tdest for vIO Switch routing
-    bypass_arbiter inst_bypass_arbiter (
-        .aclk(aclk),
-        .aresetn(aresetn),
-
-        .m_bypass_sq_net(bypass_sq_s0),
-        .s_bypass_rq_rd_net(bypass_rq_rd_s0),
-        .s_bypass_rq_wr_net(bypass_rq_wr_s0),
-        .m_axis_bypass_rd_rsp_net(axisr_bypass_out_rsp_s0),
-        .s_axis_bypass_wr_net(axisr_bypass_in_s0),
-
-        .s_bypass_sq_user(bypass_sq_s1),
-        .m_bypass_rq_rd_user(bypass_rq_rd_s1),
-        .m_bypass_rq_wr_user(bypass_rq_wr_s1),
-        .s_axis_bypass_rd_rsp_user(axis_bypass_out_rsp_s1),
-        .m_axis_bypass_wr_user(axis_bypass_in_s1)
-    );
-
-    // ================-----------------------------------------------------------------
-    // Bypass vIO Switch connections (DATA PATH)
-    // ================-----------------------------------------------------------------
-    // ALL Bypass data flows through vIO Switch for flexible routing between vFPGAs
-    // RX: Bypass Stack → vIO Switch (Bypass port) → routes to vFIU ports based on tdest
-    // TX: vFIU ports → vIO Switch → routes to Bypass port based on tdest → Bypass Stack
-
-    // RX write data: Bypass Stack → vIO Switch
-    // axisr_bypass_in_s0 carries tdest set by Bypass stack (based on vfid)
-    `AXISR_ASSIGN(axisr_bypass_in_s0, axisr_bypass_to_switch)
-    
-    assign axisr_bypass_from_switch.tready = 1'b1;
-
-    // TX read response data: vIO Switch → Bypass Stack
-    // vFIU sends data with tdest pointing to Bypass port, switch routes it here
-    `AXISR_ASSIGN(axisr_bypass_from_switch, axisr_bypass_out_rsp_s0)
-
-    // ================-----------------------------------------------------------------
-    // Per-region Bypass data arrays (tied off - data flows through vIO Switch)
-    // ================-----------------------------------------------------------------
-    // With vIO Switch routing, Bypass data is NOT routed directly to user_wrapper.
-    // Instead: Bypass Stack <-> vIO Switch <-> vFIU <-> axis_host_recv/send <-> user logic
-    // The per-region data arrays are kept for compatibility but tied off.
-
-    // Tie off per-region Bypass data arrays (no data flows through these anymore)
-    for(genvar i = 0; i < N_REGIONS; i++) begin : gen_bypass_data_tieoff
-        // RX write data tie-off (sink side - drive tvalid low)
-        assign axis_bypass_in_s1[i].tvalid = 1'b0;
-        assign axis_bypass_in_s1[i].tdata = '0;
-        assign axis_bypass_in_s1[i].tkeep = '0;
-        assign axis_bypass_in_s1[i].tlast = 1'b0;
-
-        // TX read response data tie-off (source side - accept any data)
-        assign axis_bypass_out_rsp_s1[i].tready = 1'b1;
-    end
-
-    // Clock crossing (if enabled)
-    // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(dreq_t)) bypass_sq_s2 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s2 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s2 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_s2 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_rsp_s2 [N_REGIONS]();
-
-{% if cnfg.en_uclk %}
-    // Cross to UCLK
-    for(genvar i = 0; i < N_REGIONS; i++) begin
-        bypass_ccross_ul inst_bypass_ccross_ul (
-            .nclk(aclk),
-            .nresetn(aresetn),
-            .aclk(uclk),
-            .aresetn(uresetn),
-
-            .m_bypass_sq_nclk(bypass_sq_s1[i]),
-            .s_bypass_rd_req_nclk(bypass_rq_rd_s1[i]),
-            .s_bypass_wr_req_nclk(bypass_rq_wr_s1[i]),
-            .m_axis_bypass_rd_rsp_nclk(axis_bypass_out_rsp_s1[i]),
-            .s_axis_bypass_wr_nclk(axis_bypass_in_s1[i]),
-
-            .s_bypass_sq_aclk(bypass_sq_s2[i]),
-            .m_bypass_rd_req_aclk(bypass_rq_rd_s2[i]),
-            .m_bypass_wr_req_aclk(bypass_rq_wr_s2[i]),
-            .s_axis_bypass_rd_rsp_aclk(axis_bypass_out_rsp_s2[i]),
-            .m_axis_bypass_wr_aclk(axis_bypass_in_s2[i])
-        );
-    end
-
-{% else %}
-    // No crossing
-    for(genvar i = 0; i < N_REGIONS; i++) begin
-        `META_ASSIGN(bypass_sq_s2[i], bypass_sq_s1[i])
-        `META_ASSIGN(bypass_rq_rd_s1[i], bypass_rq_rd_s2[i])
-        `META_ASSIGN(bypass_rq_wr_s1[i], bypass_rq_wr_s2[i])
-        `AXIS_ASSIGN(axis_bypass_in_s1[i], axis_bypass_in_s2[i])
-        `AXIS_ASSIGN(axis_bypass_out_rsp_s2[i], axis_bypass_out_rsp_s1[i])
-    end
-
-{% endif %}
-
-    // Slice 1
-    // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(dreq_t)) bypass_sq_s3 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s3 [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s3 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_s3 [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_rsp_s3 [N_REGIONS]();
-
-    for(genvar i = 0; i < N_REGIONS; i++) begin
-        bypass_slice_array_ul #(
-            .N_STAGES(N_REG_DYN_NET_S1)
-        ) inst_bypass_slice_array_ul (
-{% if cnfg.en_uclk %}
-            .aclk(uclk),
-            .aresetn(uresetn),
-{% else %}
-            .aclk(aclk),
-            .aresetn(aresetn),
-{% endif %}
-
-            .m_bypass_sq_n(bypass_sq_s2[i]),
-            .s_bypass_rd_req_n(bypass_rq_rd_s2[i]),
-            .s_bypass_wr_req_n(bypass_rq_wr_s2[i]),
-            .m_axis_bypass_rd_rsp_n(axis_bypass_out_rsp_s2[i]),
-            .s_axis_bypass_wr_n(axis_bypass_in_s2[i]),
-
-            .s_bypass_sq_u(bypass_sq_s3[i]),
-            .m_bypass_rd_req_u(bypass_rq_rd_s3[i]),
-            .m_bypass_wr_req_u(bypass_rq_wr_s3[i]),
-            .s_axis_bypass_rd_rsp_u(axis_bypass_out_rsp_s3[i]),
-            .m_axis_bypass_wr_u(axis_bypass_in_s3[i])
-        );
-    end
-
-    // Decoupling
-    // ----------------------------------------------------------------------
-    metaIntf #(.STYPE(dreq_t)) bypass_sq_ul [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_rd_ul [N_REGIONS]();
-    metaIntf #(.STYPE(req_t)) bypass_rq_wr_ul [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_ul [N_REGIONS]();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_rsp_ul [N_REGIONS]();
-
-    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_sq_ul), .m_meta(bypass_sq_s3));
-    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_rq_rd_s3), .m_meta(bypass_rq_rd_ul));
-    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_rq_wr_s3), .m_meta(bypass_rq_wr_ul));
-    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_bypass_in_s3), .m_axis(axis_bypass_in_ul));
-    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_bypass_out_rsp_ul), .m_axis(axis_bypass_out_rsp_s3));
-
-{% endif %}
-{% if cnfg.en_net and not cnfg.en_bypass %}
-    // Bypass vIO Switch ports (tied off - bypass not enabled)
-    assign axisr_bypass_to_switch.tdata = '0;
-    assign axisr_bypass_to_switch.tkeep = '0;
-    assign axisr_bypass_to_switch.tlast = 1'b0;
-    assign axisr_bypass_to_switch.tvalid = 1'b0;
-    assign axisr_bypass_to_switch.tid = '0;
-    assign axisr_bypass_to_switch.tdest = '0;
-    assign axisr_bypass_from_switch.tready = 1'b1;
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_notify_s3),       .m_meta(tcp_notify_ul));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_rd_pkg_ul),     .m_meta(tcp_rd_pkg_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_rx_meta_s3),      .m_meta(tcp_rx_meta_ul));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_tx_meta_ul),    .m_meta(tcp_tx_meta_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(tcp_tx_stat_s3),      .m_meta(tcp_tx_stat_ul));
+    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_tcp_in_s3),    .m_axis(axis_tcp_in_ul));
+    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_tcp_out_ul), .m_axis(axis_tcp_out_s3));
 
 {% endif %}
 
     // ================-----------------------------------------------------------------
 	// Rest of interfaces
 	// ================-----------------------------------------------------------------
-
+    
     // Control lTLB
 	AXI4L axi_ctrl_lTlb [N_REGIONS] ();
 	
@@ -1404,89 +1047,16 @@ module design_dynamic_top #(
         .m_rdma_conn_interface(rdma_conn_interface_s0),
         .s_rdma_cq(rdma_host_cq_s1),
 {% endif %}
-{% if cnfg.en_tcp %}
-        .m_open_port_cmd(open_port_cmd),
-        .m_open_port_sts(open_port_sts),
-        .m_open_conn_cmd(open_conn_cmd),
-        .m_open_conn_sts(open_conn_sts),
-{% endif %}
 {% if cnfg.en_wb %}
         .m_wback(m_wback),
 {% endif %}	
-        .usr_irq(m_usr_irq),
-        .io_ctrl_switch(io_ctrl_switch)
+        .usr_irq(m_usr_irq)
 	);
 	
-    metaIntf #(.STYPE(req_t)) user_sq_rd_int [N_REGIONS] ();
-    metaIntf #(.STYPE(req_t)) user_sq_wr_int [N_REGIONS] ();
-
 	// ================-----------------------------------------------------------------
 	// USER 
 	// ================-----------------------------------------------------------------
 {% for i in range(0, cnfg.n_reg) %}
-
-    vfiu_top inst_vfiu_{{ i }} (
-        .aclk                   (aclk),
-        .aresetn                (aresetn),
-
-        // Memory endpoint control for security validation
-        .mem_ctrl               ({(99*4){1'b0}}),
-
-        // HOST DESC
-        .host_sq_valid	                (host_sq_ul[{{ i }}].valid),
-        .host_sq_ready	                (host_sq_ul[{{ i }}].ready),
-        .host_sq_data	                (host_sq_ul[{{ i }}].data),
-
-        // BPSS DESC
-        .bpss_rd_sq_valid	            (bpss_rd_sq_ul[{{ i }}].valid),
-        .bpss_rd_sq_ready	            (bpss_rd_sq_ul[{{ i }}].ready),
-        .bpss_rd_sq_data	            (bpss_rd_sq_ul[{{ i }}].data),
-        .bpss_wr_sq_valid	            (bpss_wr_sq_ul[{{ i }}].valid),
-        .bpss_wr_sq_ready	            (bpss_wr_sq_ul[{{ i }}].ready),
-        .bpss_wr_sq_data	            (bpss_wr_sq_ul[{{ i }}].data),
-
-        // USER DESC
-        .user_rd_sq_valid	            (user_sq_rd_int[{{ i }}].valid),
-        .user_rd_sq_ready	            (user_sq_rd_int[{{ i }}].ready),
-        .user_rd_sq_data	            (user_sq_rd_int[{{ i }}].data),
-        .user_wr_sq_valid	            (user_sq_wr_int[{{ i }}].valid),
-        .user_wr_sq_ready	            (user_sq_wr_int[{{ i }}].ready),
-        .user_wr_sq_data	            (user_sq_wr_int[{{ i }}].data),
-
-        // DTU STREAMS (to/from vIO Switch)
-        .axis_dtu_sink_tdata           (axisr_dtu_in[{{ i }}].tdata),
-        .axis_dtu_sink_tkeep           (axisr_dtu_in[{{ i }}].tkeep),
-        .axis_dtu_sink_tlast           (axisr_dtu_in[{{ i }}].tlast),
-        .axis_dtu_sink_tready          (axisr_dtu_in[{{ i }}].tready),
-        .axis_dtu_sink_tvalid          (axisr_dtu_in[{{ i }}].tvalid),
-        .axis_dtu_sink_tid             (axisr_dtu_in[{{ i }}].tid),
-        .axis_dtu_src_tdata            (axisr_dtu_out[{{ i }}].tdata),
-        .axis_dtu_src_tkeep            (axisr_dtu_out[{{ i }}].tkeep),
-        .axis_dtu_src_tlast            (axisr_dtu_out[{{ i }}].tlast),
-        .axis_dtu_src_tready           (axisr_dtu_out[{{ i }}].tready),
-        .axis_dtu_src_tvalid           (axisr_dtu_out[{{ i }}].tvalid),
-        .axis_dtu_src_tid              (axisr_dtu_out[{{ i }}].tid),
-
-        // USER LOGIC STREAMS (to/from user_wrapper)
-        .axisr_ul_sink_tdata           (axisr_ul_out[{{ i }}].tdata),
-        .axisr_ul_sink_tkeep           (axisr_ul_out[{{ i }}].tkeep),
-        .axisr_ul_sink_tlast           (axisr_ul_out[{{ i }}].tlast),
-        .axisr_ul_sink_tready          (axisr_ul_out[{{ i }}].tready),
-        .axisr_ul_sink_tvalid          (axisr_ul_out[{{ i }}].tvalid),
-        .axisr_ul_sink_tid             (axisr_ul_out[{{ i }}].tid),
-        .axisr_ul_src_tdata            (axisr_ul_in[{{ i }}].tdata),
-        .axisr_ul_src_tkeep            (axisr_ul_in[{{ i }}].tkeep),
-        .axisr_ul_src_tlast            (axisr_ul_in[{{ i }}].tlast),
-        .axisr_ul_src_tready           (axisr_ul_in[{{ i }}].tready),
-        .axisr_ul_src_tvalid           (axisr_ul_in[{{ i }}].tvalid),
-        .axisr_ul_src_tid              (axisr_ul_in[{{ i }}].tid),
-
-        // Routing control
-        .route_ctrl                    (io_ctrl_switch[{{ i }}]),
-        .route_in                      (route_dtu_in[{{ i }}]),
-        .route_out                     (route_dtu_out[{{ i }}])
-    );
-
     design_user_wrapper_{{ i }} inst_user_wrapper_{{ i }} ( 
         
         // AXIL CTRL
@@ -1515,14 +1085,18 @@ module design_dynamic_top #(
         .notify_ready                   (notify_ul[{{ i }}].ready),
         .notify_data                    (notify_ul[{{ i }}].data),
 
-        .user_rd_sq_valid	            (user_sq_rd_int[{{ i }}].valid),
-        .user_rd_sq_ready	            (user_sq_rd_int[{{ i }}].ready),
-        .user_rd_sq_data	            (user_sq_rd_int[{{ i }}].data),
-        .user_wr_sq_valid	            (user_sq_wr_int[{{ i }}].valid),
-        .user_wr_sq_ready	            (user_sq_wr_int[{{ i }}].ready),
-        .user_wr_sq_data	            (user_sq_wr_int[{{ i }}].data),
+        // HOST DESC
+        .host_sq_valid	                (host_sq_ul[{{ i }}].valid),
+        .host_sq_ready	                (host_sq_ul[{{ i }}].ready),
+        .host_sq_data	                (host_sq_ul[{{ i }}].data),
 
         // BPSS DESC
+        .bpss_rd_sq_valid	            (bpss_rd_sq_ul[{{ i }}].valid),
+        .bpss_rd_sq_ready	            (bpss_rd_sq_ul[{{ i }}].ready),
+        .bpss_rd_sq_data	            (bpss_rd_sq_ul[{{ i }}].data),
+        .bpss_wr_sq_valid	            (bpss_wr_sq_ul[{{ i }}].valid),
+        .bpss_wr_sq_ready	            (bpss_wr_sq_ul[{{ i }}].ready),
+        .bpss_wr_sq_data	            (bpss_wr_sq_ul[{{ i }}].data),
         .bpss_rd_cq_valid               (bpss_rd_cq_ul[{{ i }}].valid),
         .bpss_rd_cq_ready               (bpss_rd_cq_ul[{{ i }}].ready),
         .bpss_rd_cq_data                (bpss_rd_cq_ul[{{ i }}].data),
@@ -1532,19 +1106,16 @@ module design_dynamic_top #(
         
 {% if cnfg.en_strm %}
         // HOST STREAMS
-        .axis_host_sink_tdata           (axisr_ul_in[{{ i }}].tdata),
-        .axis_host_sink_tkeep           (axisr_ul_in[{{ i }}].tkeep),
-        .axis_host_sink_tlast           (axisr_ul_in[{{ i }}].tlast),
-        .axis_host_sink_tready          (axisr_ul_in[{{ i }}].tready),
-        .axis_host_sink_tvalid          (axisr_ul_in[{{ i }}].tvalid),
-        .axis_host_sink_tid             (axisr_ul_in[{{ i }}].tid),
-        
-        .axis_host_src_tdata            (axisr_ul_out[{{ i }}].tdata),
-        .axis_host_src_tkeep            (axisr_ul_out[{{ i }}].tkeep),
-        .axis_host_src_tlast            (axisr_ul_out[{{ i }}].tlast),
-        .axis_host_src_tready           (axisr_ul_out[{{ i }}].tready),
-        .axis_host_src_tvalid           (axisr_ul_out[{{ i }}].tvalid),
-        .axis_host_src_tid              (axisr_ul_out[{{ i }}].tid),
+        .axis_host_sink_tdata           (axis_host_in_ul[{{ i }}].tdata),
+        .axis_host_sink_tkeep           (axis_host_in_ul[{{ i }}].tkeep),
+        .axis_host_sink_tlast           (axis_host_in_ul[{{ i }}].tlast),
+        .axis_host_sink_tready          (axis_host_in_ul[{{ i }}].tready),
+        .axis_host_sink_tvalid          (axis_host_in_ul[{{ i }}].tvalid),
+        .axis_host_src_tdata            (axis_host_out_ul[{{ i }}].tdata),
+        .axis_host_src_tkeep            (axis_host_out_ul[{{ i }}].tkeep),
+        .axis_host_src_tlast            (axis_host_out_ul[{{ i }}].tlast),
+        .axis_host_src_tready           (axis_host_out_ul[{{ i }}].tready),
+        .axis_host_src_tvalid           (axis_host_out_ul[{{ i }}].tvalid),
 {% endif %}
 {% if cnfg.en_mem %}
         // CARD STREAMS
@@ -1594,16 +1165,38 @@ module design_dynamic_top #(
         .axis_rdma_src_rsp_tvalid           (axis_rdma_out_rsp_ul[{{ i }}].tvalid),
 {% endif %}
 {% if cnfg.en_tcp %}
-        // TCP DESC
-        .tcp_sq_valid                   (tcp_sq_ul[{{ i }}].valid),
-        .tcp_sq_ready                   (tcp_sq_ul[{{ i }}].ready),
-        .tcp_sq_data                    (tcp_sq_ul[{{ i }}].data),
-        .tcp_rq_valid                   (tcp_rq_ul[{{ i }}].valid),
-        .tcp_rq_ready                   (tcp_rq_ul[{{ i }}].ready),
-        .tcp_rq_data                    (tcp_rq_ul[{{ i }}].data),
-        .tcp_cq_valid                   (tcp_cq_ul[{{ i }}].valid),
-        .tcp_cq_ready                   (tcp_cq_ul[{{ i }}].ready),
-        .tcp_cq_data                    (tcp_cq_ul[{{ i }}].data),
+   // TCP DESC
+        .tcp_listen_req_valid	(tcp_listen_req_ul[{{ i }}].valid),
+        .tcp_listen_req_ready	(tcp_listen_req_ul[{{ i }}].ready),
+        .tcp_listen_req_data    (tcp_listen_req_ul[{{ i }}].data),
+        .tcp_listen_rsp_valid   (tcp_listen_rsp_ul[{{ i }}].valid),
+        .tcp_listen_rsp_ready   (tcp_listen_rsp_ul[{{ i }}].ready),
+        .tcp_listen_rsp_data    (tcp_listen_rsp_ul[{{ i }}].data),
+        .tcp_open_req_valid	    (tcp_open_req_ul[{{ i }}].valid),
+        .tcp_open_req_ready	    (tcp_open_req_ul[{{ i }}].ready),
+        .tcp_open_req_data	    (tcp_open_req_ul[{{ i }}].data),
+        .tcp_open_rsp_valid	    (tcp_open_rsp_ul[{{ i }}].valid),
+        .tcp_open_rsp_ready	    (tcp_open_rsp_ul[{{ i }}].ready),
+        .tcp_open_rsp_data  	(tcp_open_rsp_ul[{{ i }}].data),
+        .tcp_close_req_valid	(tcp_close_req_ul[{{ i }}].valid),
+        .tcp_close_req_ready	(tcp_close_req_ul[{{ i }}].ready),
+        .tcp_close_req_data	    (tcp_close_req_ul[{{ i }}].data),  
+
+        .tcp_notify_valid		(tcp_notify_ul[{{ i }}].valid),
+        .tcp_notify_ready		(tcp_notify_ul[{{ i }}].ready),
+        .tcp_notify_data		(tcp_notify_ul[{{ i }}].data),
+        .tcp_rd_pkg_valid	    (tcp_rd_pkg_ul[{{ i }}].valid),
+        .tcp_rd_pkg_ready	    (tcp_rd_pkg_ul[{{ i }}].ready),
+        .tcp_rd_pkg_data	    (tcp_rd_pkg_ul[{{ i }}].data),
+        .tcp_rx_meta_valid	    (tcp_rx_meta_ul[{{ i }}].valid),
+        .tcp_rx_meta_ready	    (tcp_rx_meta_ul[{{ i }}].ready),
+        .tcp_rx_meta_data		(tcp_rx_meta_ul[{{ i }}].data),
+        .tcp_tx_meta_valid	    (tcp_tx_meta_ul[{{ i }}].valid),
+        .tcp_tx_meta_ready	    (tcp_tx_meta_ul[{{ i }}].ready),
+        .tcp_tx_meta_data		(tcp_tx_meta_ul[{{ i }}].data),
+        .tcp_tx_stat_valid	    (tcp_tx_stat_ul[{{ i }}].valid),
+        .tcp_tx_stat_ready	    (tcp_tx_stat_ul[{{ i }}].ready),
+        .tcp_tx_stat_data		(tcp_tx_stat_ul[{{ i }}].data),        
 
         .axis_tcp_sink_tdata            (axis_tcp_in_ul[{{ i }}].tdata),
         .axis_tcp_sink_tkeep            (axis_tcp_in_ul[{{ i }}].tkeep),
@@ -1615,21 +1208,6 @@ module design_dynamic_top #(
         .axis_tcp_src_tlast             (axis_tcp_out_ul[{{ i }}].tlast),
         .axis_tcp_src_tready            (axis_tcp_out_ul[{{ i }}].tready),
         .axis_tcp_src_tvalid            (axis_tcp_out_ul[{{ i }}].tvalid),
-{% endif %}
-{% if ( cnfg.en_sniffer and ( cnfg.sniffer_vfpga_id == i ) ) %}
-        .rx_sniffer_tdata(s_rx_sniffer.tdata),
-        .rx_sniffer_tkeep(s_rx_sniffer.tkeep),
-        .rx_sniffer_tlast(s_rx_sniffer.tlast),
-        .rx_sniffer_tready(s_rx_sniffer.tready),
-        .rx_sniffer_tvalid(s_rx_sniffer.tvalid),
-        .tx_sniffer_tdata(s_tx_sniffer.tdata),
-        .tx_sniffer_tkeep(s_tx_sniffer.tkeep),
-        .tx_sniffer_tlast(s_tx_sniffer.tlast),
-        .tx_sniffer_tready(s_tx_sniffer.tready),
-        .tx_sniffer_tvalid(s_tx_sniffer.tvalid),
-        .filter_config_data(m_filter_config.data),
-        .filter_config_ready(m_filter_config.ready),
-        .filter_config_valid(m_filter_config.valid),
 {% endif %}
         .S_BSCAN_drck(S_BSCAN_drck[{{ i }}]),
         .S_BSCAN_shift(S_BSCAN_shift[{{ i }}]),
@@ -1643,16 +1221,9 @@ module design_dynamic_top #(
         .S_BSCAN_reset(S_BSCAN_reset[{{ i }}]),
         .S_BSCAN_capture(S_BSCAN_capture[{{ i }}]),
         .S_BSCAN_bscanid_en(S_BSCAN_bscanid_en[{{ i }}]),
-        .port_in(port_dtu_out[{{ i }}]),
-        .port_out(port_dtu_in[{{ i }}]),
-{% if cnfg.en_rdma %}
-        .o_wrapper_sink_counter (wrapper_sink_counter[{{ i }}]),
-        .o_user_recv_counter    (user_recv_counter[{{ i }}]),
-        .o_user_send_counter    (user_send_counter[{{ i }}]),
-{% endif %}
 {% if cnfg.en_uclk %}
         .aclk                   (uclk),
-        .aresetn                (uresetn)
+        .aresetn                (uresetn),
 {% else %}
         .aclk                   (aclk),
         .aresetn                (aresetn),
@@ -1661,15 +1232,5 @@ module design_dynamic_top #(
     );
 
 {% endfor %}
-
-{% if cnfg.en_rdma %}
-    // Assign counter outputs
-    for(genvar i = 0; i < N_REGIONS; i++) begin
-        assign o_wrapper_sink_counter[i] = wrapper_sink_counter[i];
-        assign o_user_recv_counter[i] = user_recv_counter[i];
-        assign o_user_send_counter[i] = user_send_counter[i];
-    end
-{% endif %}
-
-endmodule
 	
+endmodule
