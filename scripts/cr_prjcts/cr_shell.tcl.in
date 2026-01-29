@@ -96,6 +96,7 @@ if {$cfg(en_card) eq 1} {
 if {$cfg(en_net) eq 1} {
     add_files "$hw_dir/hdl/network/cmac"
     add_files "$hw_dir/hdl/network/stack"
+    add_files "$hw_dir/hdl/network/viu"
     if {$cfg(en_rdma) eq 1} {
         add_files "$hw_dir/hdl/network/rdma"
     }

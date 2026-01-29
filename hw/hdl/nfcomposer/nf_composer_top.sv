@@ -159,7 +159,8 @@ module nf_composer_top #(
 
         vfiu_top #(
             .N_ID(1),
-            .N_ENDPOINTS(N_ENDPOINTS)
+            .N_ENDPOINTS(N_ENDPOINTS),
+            .VFPGA_ID(i)    // Pass vFPGA ID for hardcoded test mode routing
         ) inst_vfiu (
             .aclk(aclk),
             .aresetn(aresetn),

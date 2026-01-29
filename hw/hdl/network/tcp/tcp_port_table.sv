@@ -42,15 +42,21 @@ module tcp_port_table (
     metaIntf.s                                     s_listen_rsp,
     metaIntf.m                                     m_listen_rsp [N_REGIONS],
 
-    input  logic [TCP_IP_PORT_BITS-1:0]            port_addr,   
-    output logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid_out     
+    input  logic [TCP_IP_PORT_BITS-1:0]            port_addr,
+    output logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid_out,
+    output logic [13:0]                            route_id_out  // POS: route_id for vIO Switch routing
 );
 
-    localparam int PT_ADDR_BITS   = 10;                
+    localparam int PT_ADDR_BITS   = 10;
     localparam int PT_DATA_BITS   = 1 + N_REGIONS_BITS;
     localparam int PT_VALID_BIT   = PT_DATA_BITS-1;
     localparam int PT_DATA_BYTES  = (PT_DATA_BITS+7)/8;
     localparam int PT_RAM_BITS    = PT_DATA_BYTES*8;
+
+    // POS: Route ID table parameters (14-bit route_id per port)
+    localparam int ROUTE_DATA_BITS  = 14;
+    localparam int ROUTE_DATA_BYTES = (ROUTE_DATA_BITS+7)/8;
+    localparam int ROUTE_RAM_BITS   = ROUTE_DATA_BYTES*8;
 
     // -- Arbitration ------------------------------------------------------------
     metaIntf #(.STYPE(tcp_listen_req_t)) listen_req_arb ();
@@ -75,6 +81,13 @@ module tcp_port_table (
 
     assign b_addr   = port_addr[PT_ADDR_BITS-1:0];
     assign rsid_out = b_dout[PT_DATA_BITS-1:0];
+
+    // POS: Route ID RAM signals
+    logic [ROUTE_DATA_BYTES-1:0] route_a_we;
+    logic [ROUTE_RAM_BITS-1:0]   route_a_din;
+    logic [ROUTE_RAM_BITS-1:0]   route_b_dout;
+
+    assign route_id_out = route_b_dout[ROUTE_DATA_BITS-1:0];
 
     typedef enum logic [2:0] {
         ST_IDLE,       
@@ -158,6 +171,10 @@ module tcp_port_table (
         a_addr = req_buf_C.ip_port[PT_ADDR_BITS-1:0];
         a_din  = '0;
 
+        // POS: Route ID RAM defaults
+        route_a_we  = '0;
+        route_a_din = '0;
+
         req_buf_N = req_buf_C;
         rsp_buf_N = rsp_buf_C;
         vfid_N    = vfid_C;
@@ -192,6 +209,9 @@ module tcp_port_table (
                 if (m_listen_req.ready) begin
                     a_we  = {PT_DATA_BYTES{1'b1}};
                     a_din = {{(PT_RAM_BITS-PT_DATA_BITS){1'b0}}, {1'b1, vfid_C}};
+                    // POS: Store route_id from listen request
+                    route_a_we  = {ROUTE_DATA_BYTES{1'b1}};
+                    route_a_din = {{(ROUTE_RAM_BITS-ROUTE_DATA_BITS){1'b0}}, req_buf_C.route_id};
                 end
             end
 
@@ -228,6 +248,24 @@ module tcp_port_table (
         .b_en       (1'b1),
         .b_addr     (b_addr),
         .b_data_out (b_dout)
+    );
+
+    // -- POS: Route ID RAM (indexed by port, stores route_id for vIO Switch routing) --
+    ram_tp_c #(
+        .ADDR_BITS (PT_ADDR_BITS),
+        .DATA_BITS (ROUTE_RAM_BITS)
+    ) inst_port_route_table (
+        .clk        (aclk),
+
+        .a_en       (1'b1),
+        .a_we       (route_a_we),
+        .a_addr     (a_addr),          // Same address as main table
+        .a_data_in  (route_a_din),
+        .a_data_out (),                // Not used
+
+        .b_en       (1'b1),
+        .b_addr     (b_addr),          // Lookup by port_addr
+        .b_data_out (route_b_dout)
     );
 
 endmodule

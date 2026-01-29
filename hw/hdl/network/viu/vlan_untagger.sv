@@ -32,6 +32,14 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
+// HARDCODED_TEST_MODE: When defined, route_id is hardcoded for testing
+// instead of being extracted from VLAN tag. Remove for production.
+`define HARDCODED_TEST_MODE
+`ifdef HARDCODED_TEST_MODE
+    // Hardcoded route_id for testing: route all incoming packets to vFPGA 0
+    `define HARDCODED_RX_ROUTE_ID 14'h0000
+`endif
+
 /**
  * @brief   VLAN Tag Extraction Module for VIU RX Path
  *
@@ -240,7 +248,11 @@ module vlan_untagger #(
                         m_axis_tvalid = 1'b1;
                         // Set tdest directly from extracted VLAN ID using Multi-FPGA format
                         // [13:12]=src_node, [11:8]=src_vfpga, [7:6]=dst_node, [5:2]=dst_vfpga, [1:0]=reserved
+`ifdef HARDCODED_TEST_MODE
+                        m_axis_tdest = `HARDCODED_RX_ROUTE_ID;  // Hardcoded: route to vFPGA 0
+`else
                         m_axis_tdest = {src_node_id, src_vfpga_id, dst_node_id, dst_vfpga_id, 2'b00};
+`endif
 
                         // Bytes 0-11: Copy as-is (Dst + Src MAC)
                         m_axis_tdata[95:0] = s_axis_tdata[95:0];
@@ -274,7 +286,11 @@ module vlan_untagger #(
                         m_axis_tdata = s_axis_tdata;
                         m_axis_tkeep = s_axis_tkeep;
                         m_axis_tlast = s_axis_tlast;
+`ifdef HARDCODED_TEST_MODE
+                        m_axis_tdest = `HARDCODED_RX_ROUTE_ID;  // Hardcoded: route to vFPGA 0
+`else
                         m_axis_tdest = 14'b0;  // No VLAN tag, no route_id
+`endif
                         s_axis_tready = m_axis_tready;
                         // Stay in ST_FIRST_BEAT for pass-through
                     end

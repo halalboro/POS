@@ -44,7 +44,13 @@ module tcp_tx_arbiter (
     metaIntf.m                                    m_tx_stat [N_REGIONS],
 
     AXI4S.s                                       s_axis_tx [N_REGIONS],
-    AXI4S.m                                       m_axis_tx
+    AXI4S.m                                       m_axis_tx,
+
+    // POS: Route ID lookup interface (sideband signals for VIU)
+    output logic [TCP_SESSION_BITS-1:0]           tx_sid,
+    output logic                                  tx_sid_valid,
+    input  logic [13:0]                           tx_route_id,
+    input  logic                                  tx_route_id_valid
 );
 
 
@@ -92,9 +98,11 @@ module tcp_tx_arbiter (
 
   // ---------------------------------------------------------------------------
   // Two VF-only queues: seq_q (data), cmp_q (status)
+  // POS: Added route_id queue for vIO Switch routing
   // ---------------------------------------------------------------------------
   metaIntf #(.STYPE(logic[VF_BITS-1:0])) seq_snk (), seq_src ();
   metaIntf #(.STYPE(logic[VF_BITS-1:0])) cmp_snk (), cmp_src ();
+  metaIntf #(.STYPE(logic[TCP_SESSION_BITS-1:0])) sid_snk (), sid_src ();  // POS: SID queue for route lookup
   logic forward_ok;
 
   always_comb begin
@@ -109,11 +117,16 @@ module tcp_tx_arbiter (
     cmp_snk.valid   = 1'b0;
     cmp_snk.data    = vfid_pick;
 
-    if (tx_meta.valid && m_tx_meta.ready && seq_snk.ready && cmp_snk.ready) begin
+    // POS: SID queue for route_id lookup
+    sid_snk.valid   = 1'b0;
+    sid_snk.data    = tx_meta.data.sid;
+
+    if (tx_meta.valid && m_tx_meta.ready && seq_snk.ready && cmp_snk.ready && sid_snk.ready) begin
         m_tx_meta.valid = 1;
         tx_meta.ready   = 1;
         seq_snk.valid   = 1;
         cmp_snk.valid   = 1;
+        sid_snk.valid   = 1;  // POS: Queue SID for route lookup
     end
   end
 
@@ -145,20 +158,39 @@ module tcp_tx_arbiter (
     .data_src (cmp_src.data)
   );
 
+  // POS: SID queue for route_id lookup
+  queue #(
+    .QTYPE (logic [TCP_SESSION_BITS-1:0]),
+    .QDEPTH(32)
+  ) i_sid_q (
+    .aclk     (aclk),
+    .aresetn  (aresetn),
+    .val_snk  (sid_snk.valid),
+    .rdy_snk  (sid_snk.ready),
+    .data_snk (sid_snk.data),
+    .val_src  (sid_src.valid),
+    .rdy_src  (sid_src.ready),
+    .data_src (sid_src.data)
+  );
+
   // ---------------------------------------------------------------------------
   // Data path FSM: drain selected VF until TLAST handshake
+  // POS: Added route_id lookup and propagation
   // ---------------------------------------------------------------------------
-  typedef enum logic { ST_IDLE, ST_SEND} n_state_data_t;
-  logic                              state_data_C, state_data_N;
+  typedef enum logic [1:0] { ST_IDLE, ST_ROUTE_WAIT, ST_SEND } n_state_data_t;
+  logic [1:0]                        state_data_C, state_data_N;
   logic [VF_BITS-1:0]                data_vfid_C,  data_vfid_N;
+  logic [13:0]                       data_route_id_C, data_route_id_N;  // POS: stored route_id
 
   always_ff @(posedge aclk) begin
     if (!aresetn) begin
-      state_data_C <= ST_IDLE;
-      data_vfid_C  <= '0;
+      state_data_C    <= ST_IDLE;
+      data_vfid_C     <= '0;
+      data_route_id_C <= '0;
     end else begin
-      state_data_C <= state_data_N;
-      data_vfid_C  <= data_vfid_N;
+      state_data_C    <= state_data_N;
+      data_vfid_C     <= data_vfid_N;
+      data_route_id_C <= data_route_id_N;
     end
   end
 
@@ -166,7 +198,11 @@ module tcp_tx_arbiter (
     state_data_N = state_data_C;
     case (state_data_C)
       ST_IDLE: begin
-        if (seq_src.valid) state_data_N = ST_SEND;
+        if (seq_src.valid && sid_src.valid) state_data_N = ST_ROUTE_WAIT;
+      end
+      ST_ROUTE_WAIT: begin
+        // POS: Wait for route_id lookup result
+        if (tx_route_id_valid) state_data_N = ST_SEND;
       end
       ST_SEND: begin
         if ( s_axis_tx_valid[data_vfid_C]
@@ -175,13 +211,17 @@ module tcp_tx_arbiter (
           state_data_N = ST_IDLE;
         end
       end
+      default: state_data_N = ST_IDLE;
     endcase
   end
 
-
+  // POS: Route ID lookup output
+  assign tx_sid       = sid_src.data;
+  assign tx_sid_valid = (state_data_C == ST_ROUTE_WAIT);
 
   always_comb begin : DP_DATA
-      seq_src.ready   = 1'b0;
+      seq_src.ready    = 1'b0;
+      sid_src.ready    = 1'b0;  // POS: SID queue ready
       m_axis_tx.tvalid = 1'b0;
       m_axis_tx.tdata  = '0;
       m_axis_tx.tkeep  = '0;
@@ -189,12 +229,22 @@ module tcp_tx_arbiter (
       for (int i = 0; i < N_REGIONS; i++) begin
         s_axis_tx_ready[i] = 1'b0;
       end
-      data_vfid_N = data_vfid_C;
+      data_vfid_N     = data_vfid_C;
+      data_route_id_N = data_route_id_C;
 
       case (state_data_C)
           ST_IDLE: begin
             seq_src.ready = 1'b1;
-            if (seq_src.valid) data_vfid_N = seq_src.data;
+            sid_src.ready = 1'b1;  // POS: Pop SID for route lookup
+            if (seq_src.valid && sid_src.valid) begin
+              data_vfid_N = seq_src.data;
+            end
+          end
+          ST_ROUTE_WAIT: begin
+            // POS: Wait for route_id lookup, capture result
+            if (tx_route_id_valid) begin
+              data_route_id_N = tx_route_id;
+            end
           end
           ST_SEND: begin
             s_axis_tx_ready[data_vfid_C] = m_axis_tx.tready;
@@ -204,6 +254,7 @@ module tcp_tx_arbiter (
             m_axis_tx.tkeep  = s_axis_tx_keep[data_vfid_C];
             m_axis_tx.tlast  = s_axis_tx_last[data_vfid_C];
           end
+          default: ;
       endcase
   end
 

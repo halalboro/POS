@@ -54,15 +54,29 @@ module tcp_conn_table (
     metaIntf.s                                     s_notify,
     metaIntf.m                                     m_notify [N_REGIONS],
 
-    output logic [TCP_IP_PORT_BITS-1:0]            port_addr,   
-    input  logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid_in     
+    output logic [TCP_IP_PORT_BITS-1:0]            port_addr,
+    input  logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid_in,
+
+    // POS: Route ID from port table (for passive opens)
+    input  logic [13:0]                            route_id_in,
+
+    // POS: Route ID output for TX path (indexed by SID from external lookup)
+    input  logic [TCP_SESSION_BITS-1:0]            tx_sid,        // SID for route lookup
+    input  logic                                   tx_sid_valid,  // Valid signal for lookup
+    output logic [13:0]                            tx_route_id,   // Route ID result
+    output logic                                   tx_route_id_valid
 );
 
-    // -- Constants --------------------------------------------------------------  
-    localparam int SID_ADDR_BITS  = 10;     
-    localparam int SID_DATA_BITS  = 1 + N_REGIONS_BITS;         
-    localparam int SID_DATA_BYTES = (SID_DATA_BITS+7)/8;       
-    localparam int SID_RAM_BITS = SID_DATA_BYTES * 8;       
+    // -- Constants --------------------------------------------------------------
+    localparam int SID_ADDR_BITS  = 10;
+    localparam int SID_DATA_BITS  = 1 + N_REGIONS_BITS;
+    localparam int SID_DATA_BYTES = (SID_DATA_BITS+7)/8;
+    localparam int SID_RAM_BITS = SID_DATA_BYTES * 8;
+
+    // POS: Route ID table parameters
+    localparam int ROUTE_DATA_BITS  = 14;
+    localparam int ROUTE_DATA_BYTES = (ROUTE_DATA_BITS+7)/8;
+    localparam int ROUTE_RAM_BITS   = ROUTE_DATA_BYTES*8;       
 
     // Close
     // -- Arbitration ------------------------------------------------------------
@@ -84,6 +98,15 @@ module tcp_conn_table (
 
     logic [SID_ADDR_BITS-1:0]    b_addr;
     logic [SID_RAM_BITS-1:0]    b_data_out;
+
+    // POS: Route ID RAM ports
+    logic [ROUTE_DATA_BYTES-1:0]  route_a_we;
+    logic [SID_ADDR_BITS-1:0]     route_a_addr;
+    logic [ROUTE_RAM_BITS-1:0]    route_a_din;
+    logic [ROUTE_RAM_BITS-1:0]    route_b_dout;
+
+    // POS: Route ID registered output
+    logic [13:0] route_id_lookup;
 
 
     // Open ------------
@@ -166,7 +189,12 @@ module tcp_conn_table (
         a_we      = '0;
         a_addr    = '0;
         a_data_in = '0;
-        
+
+        // POS: Route ID RAM defaults (for active opens)
+        route_a_we   = '0;
+        route_a_addr = '0;
+        route_a_din  = '0;
+
         case (o_state_C)
             ST_IDLE: begin
                 if (open_req_arb.valid) begin
@@ -194,6 +222,11 @@ module tcp_conn_table (
                 a_we = {SID_DATA_BYTES{1'b1}};
                 m_open_rsp_valid[vfid_open_C] = 1'b1;
                 m_open_rsp_data[vfid_open_C]  = rsp_buf_C;
+
+                // POS: Store route_id for active open (from open_req)
+                route_a_addr = rsp_buf_C.sid[SID_ADDR_BITS-1:0];
+                route_a_din  = {{(ROUTE_RAM_BITS-ROUTE_DATA_BITS){1'b0}}, req_buf_C.route_id};
+                route_a_we   = {ROUTE_DATA_BYTES{1'b1}};
             end
             default: ;
         endcase
@@ -219,6 +252,11 @@ module tcp_conn_table (
     logic [N_REGIONS-1:0]             m_notify_valid;
     logic [$bits(tcp_notify_t)-1:0]   m_notify_data [N_REGIONS];
     logic [N_REGIONS-1:0]             m_notify_ready;
+
+    // POS: Route ID signals for passive opens (via notify)
+    logic [ROUTE_DATA_BYTES-1:0]  notify_route_we;
+    logic [SID_ADDR_BITS-1:0]     notify_route_addr;
+    logic [ROUTE_RAM_BITS-1:0]    notify_route_din;
 
     for (genvar i = 0; i < N_REGIONS; i++) begin : GEN_NOTIFY_IF_GLUE
         assign m_notify[i].valid = m_notify_valid[i];
@@ -262,6 +300,11 @@ module tcp_conn_table (
         port_addr      = not_C.dst_port;
         dst_vfid_N     = dst_vfid_C;
 
+        // POS: Route ID defaults for passive opens
+        notify_route_we   = '0;
+        notify_route_addr = '0;
+        notify_route_din  = '0;
+
         for (int i = 0; i < N_REGIONS; i++) begin
             m_notify_valid[i] = 1'b0;
             m_notify_data[i]  = not_C;
@@ -280,18 +323,22 @@ module tcp_conn_table (
 
             N_WAIT: begin
             end
-            
+
             N_WAIT_2: begin
                 if (sid_hit) begin
                     dst_vfid_N = vfid_sid;
                 end else begin
                     dst_vfid_N = vfid_port;
+                    // POS: Store route_id for passive open (new connection from port table)
+                    notify_route_addr = not_C.sid[SID_ADDR_BITS-1:0];
+                    notify_route_din  = {{(ROUTE_RAM_BITS-ROUTE_DATA_BITS){1'b0}}, route_id_in};
+                    notify_route_we   = {ROUTE_DATA_BYTES{1'b1}};
                 end
             end
 
             N_RSP_SEND: begin
                 m_notify_valid[dst_vfid_C] = 1;
-                m_notify_data[dst_vfid_C] = not_C;         
+                m_notify_data[dst_vfid_C] = not_C;
             end
             default: ;
         endcase
@@ -299,14 +346,14 @@ module tcp_conn_table (
 
     // -- SID MAP RAM ------------------------------------------------------------
     ram_tp_c #(
-        .ADDR_BITS (SID_ADDR_BITS),   
+        .ADDR_BITS (SID_ADDR_BITS),
         .DATA_BITS (SID_RAM_BITS)
     ) port_table_inst (
         .clk        (aclk),
 
         .a_en       (1'b1),
         .a_we       (a_we),
-        .a_addr     (a_addr),                     
+        .a_addr     (a_addr),
         .a_data_in  (a_data_in),
         .a_data_out (a_data_out),
 
@@ -314,5 +361,56 @@ module tcp_conn_table (
         .b_addr     (b_addr),
         .b_data_out (b_data_out)
     );
+
+    // -- POS: Route ID RAM (indexed by SID, stores route_id for vIO Switch routing) --
+    // Combined write from Open FSM (active) and Notify FSM (passive)
+    logic [ROUTE_DATA_BYTES-1:0]  route_ram_we;
+    logic [SID_ADDR_BITS-1:0]     route_ram_addr;
+    logic [ROUTE_RAM_BITS-1:0]    route_ram_din;
+
+    // Priority: Open FSM writes take precedence (shouldn't conflict in practice)
+    always_comb begin
+        if (|route_a_we) begin
+            route_ram_we   = route_a_we;
+            route_ram_addr = route_a_addr;
+            route_ram_din  = route_a_din;
+        end else begin
+            route_ram_we   = notify_route_we;
+            route_ram_addr = notify_route_addr;
+            route_ram_din  = notify_route_din;
+        end
+    end
+
+    ram_tp_nc #(
+        .ADDR_BITS (SID_ADDR_BITS),
+        .DATA_BITS (ROUTE_RAM_BITS)
+    ) inst_route_table (
+        .clk        (aclk),
+
+        .a_en       (1'b1),
+        .a_we       (route_ram_we),
+        .a_addr     (route_ram_addr),
+        .a_data_in  (route_ram_din),
+        .a_data_out (),                              // Not used
+
+        .b_en       (tx_sid_valid),                  // Lookup when TX SID is valid
+        .b_addr     (tx_sid[SID_ADDR_BITS-1:0]),     // Lookup by SID from TX path
+        .b_data_out (route_id_lookup)
+    );
+
+    // -- POS: TX Route ID output (registered) --
+    always_ff @(posedge aclk) begin
+        if (!aresetn) begin
+            tx_route_id       <= '0;
+            tx_route_id_valid <= 1'b0;
+        end else begin
+            if (tx_sid_valid) begin
+                tx_route_id       <= route_id_lookup[ROUTE_DATA_BITS-1:0];
+                tx_route_id_valid <= 1'b1;
+            end else begin
+                tx_route_id_valid <= 1'b0;
+            end
+        end
+    end
 
 endmodule

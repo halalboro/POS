@@ -32,12 +32,18 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
+// HARDCODED_TEST_MODE: When defined, skip capability validation for testing.
+// All incoming routes are considered valid. Remove for production.
+`define HARDCODED_TEST_MODE
+
 /**
  * vFIU Gateway Recv Module - Incoming Route Validation
  *
  * This module validates incoming data routes for the vFIU.
  * It checks that the route_in matches the expected routing capability
  * and outputs the destination port for the vIO Switch.
+ *
+ * HARDCODED_TEST_MODE: Skips validation, all routes are accepted.
  *
  * Naming convention:
  *   - VIU (network level): gateway_tx (outgoing), gateway_rx (incoming)
@@ -77,11 +83,16 @@ always_ff @(posedge aclk) begin
         // Extract sender from incoming route: [9:6] = sender_id
         incoming_sender <= route_in[9:6];
 
+`ifdef HARDCODED_TEST_MODE
+        // Skip validation for testing - all routes are valid
+        route_valid <= 1'b1;
+`else
         // Validate: incoming sender must match allowed sender
         // sender_id = 0 means external/any sender allowed
         route_valid <= (incoming_sender == allowed_sender_reg) ||
                        (allowed_sender_reg == 4'b0000) ||  // Allow any sender
                        (incoming_sender == 4'b0000);       // External sender
+`endif
     end
 end
 

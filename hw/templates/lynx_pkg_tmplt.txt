@@ -576,6 +576,7 @@ package lynxTypes;
     //
 
     typedef struct packed {
+        logic [13:0] route_id;
         logic [TCP_IP_PORT_BITS-1:0] ip_port;
     } tcp_listen_req_t;
 
@@ -596,6 +597,7 @@ package lynxTypes;
     } tcp_listen_rsp_r_t;
 
     typedef struct packed {
+        logic [13:0] route_id;
         logic [TCP_IP_PORT_BITS-1:0] ip_port;
         logic [TCP_IP_ADDRESS_BITS-1:0] ip_address;
     } tcp_open_req_t;

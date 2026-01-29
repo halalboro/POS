@@ -32,6 +32,10 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
+// HARDCODED_TEST_MODE: When defined, skip capability validation for testing.
+// All incoming routes are considered valid. Remove for production.
+`define HARDCODED_TEST_MODE
+
 /**
  * VIU Gateway RX Module - RX Path Routing Validation
  *
@@ -183,6 +187,10 @@ always_ff @(posedge aclk) begin
         is_for_this_vfpga <= (route_in[7:6] == this_node_id_reg) &&
                              (route_in[5:2] == this_vfpga_id_reg);
 
+`ifdef HARDCODED_TEST_MODE
+        // Skip validation for testing - all senders are valid
+        is_valid_sender <= 1'b1;
+`else
         // Validate sender:
         // - External senders (src_node+vfpga = 0) are always valid
         // - vFPGA senders must match one of the allowed sources
@@ -191,6 +199,7 @@ always_ff @(posedge aclk) begin
                            ({route_in[13:12], route_in[11:8]} == allowed_src_reg[1]) ||
                            ((N_DESTS > 2) && ({route_in[13:12], route_in[11:8]} == allowed_src_reg[2])) ||
                            ((N_DESTS > 3) && ({route_in[13:12], route_in[11:8]} == allowed_src_reg[3]));
+`endif
 
         // Debug output
         if (route_in != 14'b0) begin

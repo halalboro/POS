@@ -51,7 +51,7 @@ module tcp_arbiter (
     AXI4S.m                 m_axis_tcp_tx_net,
 
     // User
-    metaIntf.s              s_tcp_listen_req_user [N_REGIONS], 
+    metaIntf.s              s_tcp_listen_req_user [N_REGIONS],
     metaIntf.m              m_tcp_listen_rsp_user [N_REGIONS],
     metaIntf.s              s_tcp_open_req_user [N_REGIONS],
     metaIntf.m              m_tcp_open_rsp_user [N_REGIONS],
@@ -61,8 +61,12 @@ module tcp_arbiter (
     metaIntf.m              m_tcp_rx_meta_user [N_REGIONS],
     metaIntf.s              s_tcp_tx_meta_user [N_REGIONS],
     metaIntf.m              m_tcp_tx_stat_user [N_REGIONS],
-    AXI4S.m                m_axis_tcp_rx_user [N_REGIONS],
-    AXI4S.s                s_axis_tcp_tx_user [N_REGIONS],
+    AXI4S.m                 m_axis_tcp_rx_user [N_REGIONS],
+    AXI4S.s                 s_axis_tcp_tx_user [N_REGIONS],
+
+    // POS: Route ID sideband output for VIU
+    output logic [13:0]     tcp_tx_route_id,
+    output logic            tcp_tx_route_id_valid,
 
     input  wire             aclk,
     input  wire             aresetn
@@ -76,7 +80,16 @@ module tcp_arbiter (
 `ifdef MULT_REGIONS
 
     logic [TCP_IP_PORT_BITS-1:0]            port_addr;
-    logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid;     
+    logic [TCP_PORT_TABLE_DATA_BITS-1:0]    rsid;
+
+    // POS: Route ID from port table to conn table
+    logic [13:0]                            route_id;
+
+    // POS: TX route_id lookup signals (from TX arbiter)
+    logic [TCP_SESSION_BITS-1:0]            tx_sid;
+    logic                                   tx_sid_valid;
+    logic [13:0]                            tx_route_id;
+    logic                                   tx_route_id_valid;
 
     // Listen on the port (table)
     tcp_port_table inst_port_table (
@@ -87,7 +100,8 @@ module tcp_arbiter (
         .s_listen_rsp (s_tcp_listen_rsp_net),
         .m_listen_rsp (m_tcp_listen_rsp_user),
         .port_addr    (port_addr),
-        .rsid_out     (rsid)
+        .rsid_out     (rsid),
+        .route_id_out (route_id)           // POS: route_id output
     );
 
     // Open/Close connections + notify routing
@@ -106,7 +120,14 @@ module tcp_arbiter (
         .m_notify    (m_tcp_notify_user),
 
         .port_addr   (port_addr),
-        .rsid_in     (rsid)
+        .rsid_in     (rsid),
+
+        // POS: Route ID support
+        .route_id_in       (route_id),
+        .tx_sid            (tx_sid),
+        .tx_sid_valid      (tx_sid_valid),
+        .tx_route_id       (tx_route_id),
+        .tx_route_id_valid (tx_route_id_valid)
     );
 
     // RX data
@@ -130,11 +151,20 @@ module tcp_arbiter (
         .s_tx_stat(s_tcp_tx_stat_net),
         .m_tx_stat(m_tcp_tx_stat_user),
         .s_axis_tx(s_axis_tcp_tx_user),
-        .m_axis_tx(m_axis_tcp_tx_net)
+        .m_axis_tx(m_axis_tcp_tx_net),
+        // POS: Route ID lookup interface
+        .tx_sid            (tx_sid),
+        .tx_sid_valid      (tx_sid_valid),
+        .tx_route_id       (tx_route_id),
+        .tx_route_id_valid (tx_route_id_valid)
     );
-    
+
+    // POS: Route ID sideband output for VIU
+    assign tcp_tx_route_id       = tx_route_id;
+    assign tcp_tx_route_id_valid = tx_route_id_valid;
+
 `else
-    `META_ASSIGN(s_tcp_listen_req_user[0], m_tcp_listen_req_net)    
+    `META_ASSIGN(s_tcp_listen_req_user[0], m_tcp_listen_req_net)
     `META_ASSIGN(s_tcp_listen_rsp_net, m_tcp_listen_rsp_user[0])
 
     `META_ASSIGN(s_tcp_open_req_user[0], m_tcp_open_req_net)
@@ -144,12 +174,16 @@ module tcp_arbiter (
     `META_ASSIGN(s_tcp_notify_net, m_tcp_notify_user[0])
     `META_ASSIGN(s_tcp_rd_pkg_user[0], m_tcp_rd_pkg_net)
     `META_ASSIGN(s_tcp_rx_meta_net, m_tcp_rx_meta_user[0])
-    `AXIS_ASSIGN(s_axis_tcp_rx_net, m_axis_tcp_rx_user[0]) 
+    `AXIS_ASSIGN(s_axis_tcp_rx_net, m_axis_tcp_rx_user[0])
 
     `META_ASSIGN(s_tcp_tx_meta_user[0], m_tcp_tx_meta_net)
     `META_ASSIGN(s_tcp_tx_stat_net, m_tcp_tx_stat_user[0])
     `AXIS_ASSIGN(s_axis_tcp_tx_user[0], m_axis_tcp_tx_net)
- 
+
+    // POS: Single region - no route_id lookup needed
+    assign tcp_tx_route_id       = '0;
+    assign tcp_tx_route_id_valid = 1'b0;
+
 `endif
 
 endmodule

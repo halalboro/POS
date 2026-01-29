@@ -41,7 +41,8 @@ import lynxTypes::*;
 module vfiu_top #(
     // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
     parameter integer N_ID = N_REGIONS,
-    parameter integer N_ENDPOINTS = 4
+    parameter integer N_ENDPOINTS = 4,
+    parameter integer VFPGA_ID = 0    // vFPGA ID for hardcoded test mode routing
 ) (
     input  logic                                aclk,
     input  logic                                aresetn,
@@ -347,8 +348,10 @@ module vfiu_top #(
     // Gateway Send (gate_send): Routing capability for vIO Switch
     // ========================================================================================
     // Sets the route_out signal for the vIO Switch based on route_ctrl configuration.
+    // VFPGA_ID is passed through for hardcoded test mode routing.
     gateway_send #(
-        .N_DESTS(N_STRM_AXI)
+        .N_DESTS(N_STRM_AXI),
+        .ID(VFPGA_ID)
     ) inst_gateway_send (
         .aclk(aclk),
         .aresetn(aresetn),

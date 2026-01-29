@@ -141,6 +141,9 @@ set(EN_TCP 0 CACHE STRING "Enable TCP/IP stack.")
 # Number of TCP/IP streams, per vFPGA
 set(N_TCP_AXI 1 CACHE STRING "Number of TCP/IP streams")
 
+# Enable Bypass (UDP) stack
+set(EN_BYPASS 0 CACHE STRING "Enable Bypass (UDP) stack")
+
 # Packet sniffer
 set(EN_SNIFFER 0 CACHE STRING "Enable packet sniffer.")
 set(SNIFFER_VFPGA_ID 0 CACHE STRING "ID of vFPGA to receive packet sniffer data stream.")

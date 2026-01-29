@@ -95,6 +95,9 @@ module design_dynamic_top #(
     metaIntf.s                                  s_tcp_tx_stat,
     AXI4S.s                                     s_axis_tcp,
     AXI4S.m                                     m_axis_tcp,
+    // POS: TCP route_id for VIU routing
+    output logic [13:0]                         m_tcp_tx_route_id,
+    output logic                                m_tcp_tx_route_id_valid,
 
 {% endif %}
 {% if cnfg.en_wb %}
@@ -690,7 +693,10 @@ module design_dynamic_top #(
         .s_tcp_tx_meta_user(tcp_tx_meta_s1),
         .m_tcp_tx_stat_user(tcp_tx_stat_s1),
         .m_axis_tcp_rx_user(axis_tcp_in_s1),
-        .s_axis_tcp_tx_user(axis_tcp_out_s1)
+        .s_axis_tcp_tx_user(axis_tcp_out_s1),
+        // POS: Route ID sideband for VIU
+        .tcp_tx_route_id(m_tcp_tx_route_id),
+        .tcp_tx_route_id_valid(m_tcp_tx_route_id_valid)
     );
 
     // Clock crossing (if enabled)
