@@ -32,7 +32,8 @@ import lynxTypes::*;
 /**
  * @brief   RDMA slice array
  *
- * RDMA slicing. User-side uses AXI4SR for vIO Switch routing.
+ * RDMA slicing. Uses AXI4S on both sides for simplicity.
+ * Route handling is done elsewhere in the VIU/vFIU gateways.
  *
  */
 module rdma_slice_array_dyn #(
@@ -50,7 +51,7 @@ module rdma_slice_array_dyn #(
     AXI4S.m                 m_axis_rdma_rd_rsp_n,
     AXI4S.s                 s_axis_rdma_wr_n,
 
-    // User (AXI4SR for vIO Switch routing)
+    // User (AXI4S - route handling done in VIU/vFIU gateways)
     metaIntf.s              s_rdma_qp_interface_u,
     metaIntf.s              s_rdma_conn_interface_u,
 
@@ -58,9 +59,9 @@ module rdma_slice_array_dyn #(
     metaIntf.m              m_rdma_cq_u,
     metaIntf.m              m_rdma_rq_rd_u,
     metaIntf.m              m_rdma_rq_wr_u,
-    AXI4SR.s                s_axis_rdma_rd_req_u,
-    AXI4SR.s                s_axis_rdma_rd_rsp_u,
-    AXI4SR.m                m_axis_rdma_wr_u,
+    AXI4S.s                 s_axis_rdma_rd_req_u,
+    AXI4S.s                 s_axis_rdma_rd_rsp_u,
+    AXI4S.m                 m_axis_rdma_wr_u,
 
     input  wire             aclk,
     input  wire             aresetn
@@ -82,22 +83,12 @@ AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_wr_s [N_STAGES+1] (.*);
 `META_ASSIGN(s_rdma_rq_wr_n, rdma_rq_wr_s[0])
 `AXIS_ASSIGN(s_axis_rdma_wr_n, axis_rdma_wr_s[0])
 
-// Slaves - User side (AXI4SR input, convert to internal AXI4S)
+// Slaves - User side
 `META_ASSIGN(s_rdma_qp_interface_u, rdma_qp_interface_s[0])
 `META_ASSIGN(s_rdma_conn_interface_u, rdma_conn_interface_s[0])
 `META_ASSIGN(s_rdma_sq_u, rdma_sq_s[0])
-// AXI4SR -> AXI4S conversion (strip tid/tdest)
-assign axis_rdma_rd_req_s[0].tvalid = s_axis_rdma_rd_req_u.tvalid;
-assign axis_rdma_rd_req_s[0].tdata  = s_axis_rdma_rd_req_u.tdata;
-assign axis_rdma_rd_req_s[0].tkeep  = s_axis_rdma_rd_req_u.tkeep;
-assign axis_rdma_rd_req_s[0].tlast  = s_axis_rdma_rd_req_u.tlast;
-assign s_axis_rdma_rd_req_u.tready  = axis_rdma_rd_req_s[0].tready;
-
-assign axis_rdma_rd_rsp_s[0].tvalid = s_axis_rdma_rd_rsp_u.tvalid;
-assign axis_rdma_rd_rsp_s[0].tdata  = s_axis_rdma_rd_rsp_u.tdata;
-assign axis_rdma_rd_rsp_s[0].tkeep  = s_axis_rdma_rd_rsp_u.tkeep;
-assign axis_rdma_rd_rsp_s[0].tlast  = s_axis_rdma_rd_rsp_u.tlast;
-assign s_axis_rdma_rd_rsp_u.tready  = axis_rdma_rd_rsp_s[0].tready;
+`AXIS_ASSIGN(s_axis_rdma_rd_req_u, axis_rdma_rd_req_s[0])
+`AXIS_ASSIGN(s_axis_rdma_rd_rsp_u, axis_rdma_rd_rsp_s[0])
 
 // Masters - Network side
 `META_ASSIGN(rdma_qp_interface_s[N_STAGES], m_rdma_qp_interface_n)
@@ -106,20 +97,11 @@ assign s_axis_rdma_rd_rsp_u.tready  = axis_rdma_rd_rsp_s[0].tready;
 `AXIS_ASSIGN(axis_rdma_rd_req_s[N_STAGES], m_axis_rdma_rd_req_n)
 `AXIS_ASSIGN(axis_rdma_rd_rsp_s[N_STAGES], m_axis_rdma_rd_rsp_n)
 
-// Masters - User side (AXI4S to AXI4SR conversion, add tid/tdest)
+// Masters - User side
 `META_ASSIGN(rdma_cq_s[N_STAGES], m_rdma_cq_u)
 `META_ASSIGN(rdma_rq_rd_s[N_STAGES], m_rdma_rq_rd_u)
 `META_ASSIGN(rdma_rq_wr_s[N_STAGES], m_rdma_rq_wr_u)
-// AXI4S -> AXI4SR conversion (add tid/tdest from metadata)
-// tid carries vfid (local vFPGA identifier)
-// tdest carries route_id (full routing info for vIO Switch, extracted from VLAN by VIU)
-assign m_axis_rdma_wr_u.tvalid = axis_rdma_wr_s[N_STAGES].tvalid;
-assign m_axis_rdma_wr_u.tdata  = axis_rdma_wr_s[N_STAGES].tdata;
-assign m_axis_rdma_wr_u.tkeep  = axis_rdma_wr_s[N_STAGES].tkeep;
-assign m_axis_rdma_wr_u.tlast  = axis_rdma_wr_s[N_STAGES].tlast;
-assign m_axis_rdma_wr_u.tid    = m_rdma_rq_wr_u.data.vfid;      
-assign m_axis_rdma_wr_u.tdest  = m_rdma_rq_wr_u.data.route_id;
-assign axis_rdma_wr_s[N_STAGES].tready = m_axis_rdma_wr_u.tready;
+`AXIS_ASSIGN(axis_rdma_wr_s[N_STAGES], m_axis_rdma_wr_u)
 
 for(genvar i = 0; i < N_STAGES; i++) begin
 

@@ -127,6 +127,23 @@ module nf_composer_top #(
         logic                         axisr_ul_src_tvalid;
         logic [PID_BITS-1:0]          axisr_ul_src_tid;
 
+        // Host data path via vIO Switch
+        logic [AXI_DATA_BITS-1:0]     axis_host_tx_to_switch_tdata;
+        logic [AXI_DATA_BITS/8-1:0]   axis_host_tx_to_switch_tkeep;
+        logic                         axis_host_tx_to_switch_tlast;
+        logic                         axis_host_tx_to_switch_tready;
+        logic                         axis_host_tx_to_switch_tvalid;
+        logic [PID_BITS-1:0]          axis_host_tx_to_switch_tid;
+        logic [13:0]                  axis_host_tx_to_switch_tdest;
+
+        logic [AXI_DATA_BITS-1:0]     axis_host_rx_from_switch_tdata;
+        logic [AXI_DATA_BITS/8-1:0]   axis_host_rx_from_switch_tkeep;
+        logic                         axis_host_rx_from_switch_tlast;
+        logic                         axis_host_rx_from_switch_tready;
+        logic                         axis_host_rx_from_switch_tvalid;
+        logic [PID_BITS-1:0]          axis_host_rx_from_switch_tid;
+        logic [13:0]                  axis_host_rx_from_switch_tdest;
+
         // Connect user logic interfaces to vFIU
         assign axisr_ul_sink_tvalid = axis_user_sink[i].tvalid;
         assign axisr_ul_sink_tdata  = axis_user_sink[i].tdata;
@@ -222,8 +239,41 @@ module nf_composer_top #(
             // Routing control
             .route_ctrl(route_ctrl[i]),
             .route_in(route_out[i]),    // From switch to this vFIU
-            .route_out(route_in[i])     // From this vFIU to switch
+            .route_out(route_in[i]),    // From this vFIU to switch
+
+            // Host data path via vIO Switch (TX: vFPGA → DMA, RX: DMA → vFPGA)
+            .axis_host_tx_to_switch_tdata(axis_host_tx_to_switch_tdata),
+            .axis_host_tx_to_switch_tkeep(axis_host_tx_to_switch_tkeep),
+            .axis_host_tx_to_switch_tlast(axis_host_tx_to_switch_tlast),
+            .axis_host_tx_to_switch_tready(axis_host_tx_to_switch_tready),
+            .axis_host_tx_to_switch_tvalid(axis_host_tx_to_switch_tvalid),
+            .axis_host_tx_to_switch_tid(axis_host_tx_to_switch_tid),
+            .axis_host_tx_to_switch_tdest(axis_host_tx_to_switch_tdest),
+
+            .axis_host_rx_from_switch_tdata(axis_host_rx_from_switch_tdata),
+            .axis_host_rx_from_switch_tkeep(axis_host_rx_from_switch_tkeep),
+            .axis_host_rx_from_switch_tlast(axis_host_rx_from_switch_tlast),
+            .axis_host_rx_from_switch_tready(axis_host_rx_from_switch_tready),
+            .axis_host_rx_from_switch_tvalid(axis_host_rx_from_switch_tvalid),
+            .axis_host_rx_from_switch_tid(axis_host_rx_from_switch_tid),
+            .axis_host_rx_from_switch_tdest(axis_host_rx_from_switch_tdest)
         );
+
+        // Note: In the full dynamic_top_tmplt.txt integration, these host data paths
+        // connect to the vIO Switch HOST_TX/HOST_RX ports. For this simpler
+        // nf_composer_top architecture, they should be tied off or connected
+        // to the appropriate external interfaces.
+        //
+        // TODO: Add vIO Switch HOST_TX/HOST_RX ports or external DMA interfaces
+        // to complete the host data path routing through vIO Switch.
+        assign axis_host_tx_to_switch_tready = 1'b1;  // Temporary tie-off
+        assign axis_host_rx_from_switch_tvalid = 1'b0;
+        assign axis_host_rx_from_switch_tdata = '0;
+        assign axis_host_rx_from_switch_tkeep = '0;
+        assign axis_host_rx_from_switch_tlast = 1'b0;
+        assign axis_host_rx_from_switch_tid = '0;
+        assign axis_host_rx_from_switch_tdest = '0;
+
     end
 
     // =========================================================================

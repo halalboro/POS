@@ -60,12 +60,6 @@ module gate_mem #(
     // Memory endpoint control interface (99 bits per endpoint)
     input  logic [(99*N_ENDPOINTS)-1:0]         ep_ctrl,
 
-  
-    // Format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
-    // This ID is injected into outgoing DMA requests and used by the DMA controller
-    // to route responses back through the vIO Switch to the correct vFPGA
-    input  logic [13:0]                         route_id,
-
     // Original DMA interfaces (unfiltered inputs)
     metaIntf.s                                  s_rd_req,
     metaIntf.s                                  s_wr_req,
@@ -187,14 +181,12 @@ module gate_mem #(
     // ========================================================================================
 
     always_comb begin
-        // AUTHORIZED REQUESTS: Forward to downstream with route_id injected
+        // AUTHORIZED REQUESTS: Forward to downstream
         m_rd_req.valid = s_rd_req.valid && rd_access_allowed;
         m_rd_req.data = s_rd_req.data;
-        m_rd_req.data.route_id = route_id;  // Inject route_id for vIO Switch routing
 
         m_wr_req.valid = s_wr_req.valid && wr_access_allowed;
         m_wr_req.data = s_wr_req.data;
-        m_wr_req.data.route_id = route_id;  // Inject route_id for vIO Switch routing
 
         // AUTHORIZED: Wait for downstream ready
         // UNAUTHORIZED: Immediately drop (assert ready to consume/reject request)

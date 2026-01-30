@@ -33,11 +33,14 @@ import lynxTypes::*;
 
 /**
  * @brief   Top level TCP arbiter
- * 
+ *
+ * POS: Modified for vIO Switch integration.
+ * - TX path outputs AXI4SR with route_id in tdest for vIO Switch routing
+ * - RX path outputs AXI4SR with vfid in tdest for vIO Switch routing to vFIUs
  */
 module tcp_arbiter (
-    // Network
-    metaIntf.m              m_tcp_listen_req_net,  
+    // Network (from/to TCP stack)
+    metaIntf.m              m_tcp_listen_req_net,
     metaIntf.s              s_tcp_listen_rsp_net,
     metaIntf.m              m_tcp_open_req_net,
     metaIntf.s              s_tcp_open_rsp_net,
@@ -47,10 +50,13 @@ module tcp_arbiter (
     metaIntf.s              s_tcp_rx_meta_net,
     metaIntf.m              m_tcp_tx_meta_net,
     metaIntf.s              s_tcp_tx_stat_net,
-    AXI4S.s                 s_axis_tcp_rx_net,
-    AXI4S.m                 m_axis_tcp_tx_net,
+    AXI4S.s                 s_axis_tcp_rx_net,     // RX data from TCP stack
+    AXI4SR.m                m_axis_tcp_tx_net,     // POS: TX data to vIO Switch (AXI4SR for routing)
 
-    // User
+    // vIO Switch interface (RX path)
+    AXI4SR.m                m_axis_tcp_rx_switch,  // POS: RX data to vIO Switch (AXI4SR for routing)
+
+    // User (per-region metadata - data goes through vIO Switch)
     metaIntf.s              s_tcp_listen_req_user [N_REGIONS],
     metaIntf.m              m_tcp_listen_rsp_user [N_REGIONS],
     metaIntf.s              s_tcp_open_req_user [N_REGIONS],
@@ -61,12 +67,12 @@ module tcp_arbiter (
     metaIntf.m              m_tcp_rx_meta_user [N_REGIONS],
     metaIntf.s              s_tcp_tx_meta_user [N_REGIONS],
     metaIntf.m              m_tcp_tx_stat_user [N_REGIONS],
-    AXI4S.m                 m_axis_tcp_rx_user [N_REGIONS],
-    AXI4S.s                 s_axis_tcp_tx_user [N_REGIONS],
+    AXI4S.s                 s_axis_tcp_tx_user [N_REGIONS],  // TX data from users
 
-    // POS: Route ID sideband output for VIU
+    // POS: Route ID sideband outputs
     output logic [13:0]     tcp_tx_route_id,
     output logic            tcp_tx_route_id_valid,
+    output logic [13:0]     tcp_rx_route_id,       // POS: RX route_id for vFIU gateway
 
     input  wire             aclk,
     input  wire             aresetn
@@ -130,19 +136,23 @@ module tcp_arbiter (
         .tx_route_id_valid (tx_route_id_valid)
     );
 
-    // RX data
+    // POS: Internal RX route_id signal
+    logic [13:0] rx_route_id_int;
+
+    // RX data - POS: Now outputs AXI4SR to vIO Switch
     tcp_rx_arbiter inst_rx_arb (
-        .aclk     (aclk),
-        .aresetn  (aresetn),
-        .s_rd_pkg (s_tcp_rd_pkg_user),
-        .m_rd_pkg (m_tcp_rd_pkg_net),
-        .s_rx_meta(s_tcp_rx_meta_net),
-        .m_rx_meta(m_tcp_rx_meta_user),
-        .s_axis_rx(s_axis_tcp_rx_net),
-        .m_axis_rx(m_axis_tcp_rx_user)
+        .aclk       (aclk),
+        .aresetn    (aresetn),
+        .s_rd_pkg   (s_tcp_rd_pkg_user),
+        .m_rd_pkg   (m_tcp_rd_pkg_net),
+        .s_rx_meta  (s_tcp_rx_meta_net),
+        .m_rx_meta  (m_tcp_rx_meta_user),
+        .s_axis_rx  (s_axis_tcp_rx_net),
+        .m_axis_rx  (m_axis_tcp_rx_switch),  // POS: To vIO Switch
+        .rx_route_id(rx_route_id_int)        // POS: Route ID for vFIU gateway
     );
 
-    // TX data
+    // TX data - POS: Now outputs AXI4SR to vIO Switch
     tcp_tx_arbiter inst_tx_arb (
         .aclk     (aclk),
         .aresetn  (aresetn),
@@ -151,7 +161,7 @@ module tcp_arbiter (
         .s_tx_stat(s_tcp_tx_stat_net),
         .m_tx_stat(m_tcp_tx_stat_user),
         .s_axis_tx(s_axis_tcp_tx_user),
-        .m_axis_tx(m_axis_tcp_tx_net),
+        .m_axis_tx(m_axis_tcp_tx_net),       // POS: To vIO Switch (AXI4SR)
         // POS: Route ID lookup interface
         .tx_sid            (tx_sid),
         .tx_sid_valid      (tx_sid_valid),
@@ -159,9 +169,10 @@ module tcp_arbiter (
         .tx_route_id_valid (tx_route_id_valid)
     );
 
-    // POS: Route ID sideband output for VIU
+    // POS: Route ID sideband outputs
     assign tcp_tx_route_id       = tx_route_id;
     assign tcp_tx_route_id_valid = tx_route_id_valid;
+    assign tcp_rx_route_id       = rx_route_id_int;
 
 `else
     `META_ASSIGN(s_tcp_listen_req_user[0], m_tcp_listen_req_net)
@@ -174,15 +185,33 @@ module tcp_arbiter (
     `META_ASSIGN(s_tcp_notify_net, m_tcp_notify_user[0])
     `META_ASSIGN(s_tcp_rd_pkg_user[0], m_tcp_rd_pkg_net)
     `META_ASSIGN(s_tcp_rx_meta_net, m_tcp_rx_meta_user[0])
-    `AXIS_ASSIGN(s_axis_tcp_rx_net, m_axis_tcp_rx_user[0])
 
     `META_ASSIGN(s_tcp_tx_meta_user[0], m_tcp_tx_meta_net)
     `META_ASSIGN(s_tcp_tx_stat_net, m_tcp_tx_stat_user[0])
-    `AXIS_ASSIGN(s_axis_tcp_tx_user[0], m_axis_tcp_tx_net)
+
+    // POS: Single region - convert AXI4S to AXI4SR for vIO Switch
+    // RX path: network -> vIO Switch -> vFIU
+    assign m_axis_tcp_rx_switch.tvalid = s_axis_tcp_rx_net.tvalid;
+    assign m_axis_tcp_rx_switch.tdata  = s_axis_tcp_rx_net.tdata;
+    assign m_axis_tcp_rx_switch.tkeep  = s_axis_tcp_rx_net.tkeep;
+    assign m_axis_tcp_rx_switch.tlast  = s_axis_tcp_rx_net.tlast;
+    assign m_axis_tcp_rx_switch.tid    = '0;
+    assign m_axis_tcp_rx_switch.tdest  = '0;  // Single region, goes to vFIU 0
+    assign s_axis_tcp_rx_net.tready    = m_axis_tcp_rx_switch.tready;
+
+    // TX path: user -> vIO Switch -> network
+    assign m_axis_tcp_tx_net.tvalid = s_axis_tcp_tx_user[0].tvalid;
+    assign m_axis_tcp_tx_net.tdata  = s_axis_tcp_tx_user[0].tdata;
+    assign m_axis_tcp_tx_net.tkeep  = s_axis_tcp_tx_user[0].tkeep;
+    assign m_axis_tcp_tx_net.tlast  = s_axis_tcp_tx_user[0].tlast;
+    assign m_axis_tcp_tx_net.tid    = '0;
+    assign m_axis_tcp_tx_net.tdest  = '0;  // Single region, sender=0
+    assign s_axis_tcp_tx_user[0].tready = m_axis_tcp_tx_net.tready;
 
     // POS: Single region - no route_id lookup needed
     assign tcp_tx_route_id       = '0;
     assign tcp_tx_route_id_valid = 1'b0;
+    assign tcp_rx_route_id       = '0;
 
 `endif
 

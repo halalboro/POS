@@ -44,9 +44,9 @@ module tcp_tx_arbiter (
     metaIntf.m                                    m_tx_stat [N_REGIONS],
 
     AXI4S.s                                       s_axis_tx [N_REGIONS],
-    AXI4S.m                                       m_axis_tx,
+    AXI4SR.m                                      m_axis_tx,  // POS: Changed to AXI4SR for vIO Switch routing
 
-    // POS: Route ID lookup interface (sideband signals for VIU)
+    // POS: Route ID lookup interface
     output logic [TCP_SESSION_BITS-1:0]           tx_sid,
     output logic                                  tx_sid_valid,
     input  logic [13:0]                           tx_route_id,
@@ -226,6 +226,8 @@ module tcp_tx_arbiter (
       m_axis_tx.tdata  = '0;
       m_axis_tx.tkeep  = '0;
       m_axis_tx.tlast  = '0;
+      m_axis_tx.tid    = '0;    // POS: AXI4SR tid (source vfid)
+      m_axis_tx.tdest  = '0;    // POS: AXI4SR tdest (route_id for vIO Switch)
       for (int i = 0; i < N_REGIONS; i++) begin
         s_axis_tx_ready[i] = 1'b0;
       end
@@ -253,6 +255,9 @@ module tcp_tx_arbiter (
             m_axis_tx.tdata  = s_axis_tx_data[data_vfid_C];
             m_axis_tx.tkeep  = s_axis_tx_keep[data_vfid_C];
             m_axis_tx.tlast  = s_axis_tx_last[data_vfid_C];
+            // POS: Set routing info for vIO Switch
+            m_axis_tx.tid    = data_vfid_C;       // Source vfid
+            m_axis_tx.tdest  = data_route_id_C;   // Route ID for vIO Switch routing
           end
           default: ;
       endcase

@@ -206,6 +206,31 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) output logic                                axis_tcp_src_tvalid,
 
 {% endif %}
+    // BYPASS CONTROL (SQ and RQ commands - always present)
+    (* io_buffer_type = "none" *) output logic                                bypass_sq_valid,
+    (* io_buffer_type = "none" *) input  logic                                bypass_sq_ready,
+    (* io_buffer_type = "none" *) output dreq_t                               bypass_sq_data,
+    (* io_buffer_type = "none" *) input  logic                                bypass_rq_rd_valid,
+    (* io_buffer_type = "none" *) output logic                                bypass_rq_rd_ready,
+    (* io_buffer_type = "none" *) input  req_t                                bypass_rq_rd_data,
+    (* io_buffer_type = "none" *) input  logic                                bypass_rq_wr_valid,
+    (* io_buffer_type = "none" *) output logic                                bypass_rq_wr_ready,
+    (* io_buffer_type = "none" *) input  req_t                                bypass_rq_wr_data,
+
+    // AXI4S BYPASS SINK (RX: network -> vFPGA)
+    (* io_buffer_type = "none" *) input  logic[AXI_NET_BITS-1:0]              axis_bypass_sink_tdata,
+    (* io_buffer_type = "none" *) input  logic[AXI_NET_BITS/8-1:0]            axis_bypass_sink_tkeep,
+    (* io_buffer_type = "none" *) input  logic                                axis_bypass_sink_tlast,
+    (* io_buffer_type = "none" *) output logic                                axis_bypass_sink_tready,
+    (* io_buffer_type = "none" *) input  logic                                axis_bypass_sink_tvalid,
+
+    // AXI4S BYPASS SOURCE (TX: vFPGA -> network)
+    (* io_buffer_type = "none" *) output logic[AXI_NET_BITS-1:0]              axis_bypass_src_tdata,
+    (* io_buffer_type = "none" *) output logic[AXI_NET_BITS/8-1:0]            axis_bypass_src_tkeep,
+    (* io_buffer_type = "none" *) output logic                                axis_bypass_src_tlast,
+    (* io_buffer_type = "none" *) input  logic                                axis_bypass_src_tready,
+    (* io_buffer_type = "none" *) output logic                                axis_bypass_src_tvalid,
+
     // BSCAN
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_drck,
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_shift,
@@ -491,8 +516,46 @@ module design_user_wrapper_{{ c_reg }} (
     assign axis_tcp_src_tkeep                  = axis_tcp_src.tkeep;
     assign axis_tcp_src_tlast                  = axis_tcp_src.tlast;
     assign axis_tcp_src.tready                 = axis_tcp_src_tready;
-    
+
 {% endif %}
+    // Bypass control (always present - bypass SQ and RQ commands)
+    metaIntf #(.STYPE(dreq_t)) bypass_sq ();
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_int ();
+
+    assign bypass_sq_valid                      = bypass_sq.valid;
+    assign bypass_sq.ready                      = bypass_sq_ready;
+    assign bypass_sq_data                       = bypass_sq.data;
+
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_int ();
+
+    assign bypass_rq_rd.valid                   = bypass_rq_rd_valid;
+    assign bypass_rq_rd_ready                   = bypass_rq_rd.ready;
+    assign bypass_rq_rd.data                    = bypass_rq_rd_data;
+
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_int ();
+
+    assign bypass_rq_wr.valid                   = bypass_rq_wr_valid;
+    assign bypass_rq_wr_ready                   = bypass_rq_wr.ready;
+    assign bypass_rq_wr.data                    = bypass_rq_wr_data;
+
+    // Bypass streams (always present - bypass data path through vIO Switch)
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_sink ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_src ();
+
+    assign axis_bypass_sink.tvalid              = axis_bypass_sink_tvalid;
+    assign axis_bypass_sink.tdata               = axis_bypass_sink_tdata;
+    assign axis_bypass_sink.tkeep               = axis_bypass_sink_tkeep;
+    assign axis_bypass_sink.tlast               = axis_bypass_sink_tlast;
+    assign axis_bypass_sink_tready              = axis_bypass_sink.tready;
+
+    assign axis_bypass_src_tvalid               = axis_bypass_src.tvalid;
+    assign axis_bypass_src_tdata                = axis_bypass_src.tdata;
+    assign axis_bypass_src_tkeep                = axis_bypass_src.tkeep;
+    assign axis_bypass_src_tlast                = axis_bypass_src.tlast;
+    assign axis_bypass_src.tready               = axis_bypass_src_tready;
+
 
 {% if cnfg.en_user_reg %}
     // 
@@ -522,6 +585,11 @@ module design_user_wrapper_{{ c_reg }} (
     meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_rdma_rq_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(rdma_rq_wr), .m_meta(rdma_rq_wr_int));
 
 {% endif %}
+    // Bypass control (always present)
+    meta_reg #(.DATA_BITS($bits(dreq_t))) inst_reg_bypass_sq (.aclk(aclk), .aresetn(aresetn), .s_meta(bypass_sq_int), .m_meta(bypass_sq));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_bypass_rq_rd (.aclk(aclk), .aresetn(aresetn), .s_meta(bypass_rq_rd), .m_meta(bypass_rq_rd_int));
+    meta_reg #(.DATA_BITS($bits(req_t))) inst_reg_bypass_rq_wr (.aclk(aclk), .aresetn(aresetn), .s_meta(bypass_rq_wr), .m_meta(bypass_rq_wr_int));
+
 {% if cnfg.en_tcp %}
     // TCP desc
     meta_reg #(.DATA_BITS($bits(tcp_listen_req_t))) inst_reg_tcp_listen_req (.aclk(aclk), .aresetn(aresetn), .s_meta(tcp_listen_req_int), .m_meta(tcp_listen_req));
@@ -591,7 +659,12 @@ module design_user_wrapper_{{ c_reg }} (
     `META_ASSIGN(rdma_rq_rd, rdma_rq_rd_int)
     `META_ASSIGN(rdma_rq_wr, rdma_rq_wr_int)
 
-{% endif %} 
+{% endif %}
+    // Bypass control (always present)
+    `META_ASSIGN(bypass_sq_int, bypass_sq)
+    `META_ASSIGN(bypass_rq_rd, bypass_rq_rd_int)
+    `META_ASSIGN(bypass_rq_wr, bypass_rq_wr_int)
+
 {% if cnfg.en_tcp %}
     // TCP desc
     `META_ASSIGN(tcp_listen_req , tcp_listen_req_int)
@@ -1143,6 +1216,13 @@ module design_user_wrapper_{{ c_reg }} (
         .axis_tcp_recv(axis_tcp_sink),
         .axis_tcp_send(axis_tcp_src),
     {% endif %}
+        // Bypass control (always present)
+        .bypass_sq(bypass_sq_int),
+        .bypass_rq_rd(bypass_rq_rd_int),
+        .bypass_rq_wr(bypass_rq_wr_int),
+        // Bypass streams (always present)
+        .axis_bypass_recv(axis_bypass_sink),
+        .axis_bypass_send(axis_bypass_src),
         .aclk(aclk),
 	    .aresetn(aresetn)
 	);

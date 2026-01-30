@@ -263,6 +263,15 @@ always_ff @(posedge nclk) begin
     end
 end
 
+// Convert AXI4SR to AXI4S for internal use (strip tdest/tid sideband signals)
+// The route_id is captured above, so we can safely strip it here
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) s_axis_net_axi4s (.aclk(nclk), .aresetn(nresetn));
+assign s_axis_net_axi4s.tvalid = s_axis_net.tvalid;
+assign s_axis_net_axi4s.tdata  = s_axis_net.tdata;
+assign s_axis_net_axi4s.tkeep  = s_axis_net.tkeep;
+assign s_axis_net_axi4s.tlast  = s_axis_net.tlast;
+assign s_axis_net.tready       = s_axis_net_axi4s.tready;
+
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
 
@@ -357,7 +366,8 @@ vio_ip inst_vio_ip (
 /**
  * Packet Sniffer
  */
-axis_reg       inst_sniffer_slice_0 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(s_axis_net), .m_axis(axis_slice_to_sniffer));
+// Use the converted AXI4S signal (tdest already captured above)
+axis_reg       inst_sniffer_slice_0 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(s_axis_net_axi4s), .m_axis(axis_slice_to_sniffer));
 
 `ifdef EN_SNIFFER
 axis_reg_array inst_sniffer_slice_1 (.aclk(nclk), .aresetn(nresetn_r), .s_axis(axis_macmerger_to_sniffer_slice), .m_axis(axis_sniffer_slice_to_sniffer));

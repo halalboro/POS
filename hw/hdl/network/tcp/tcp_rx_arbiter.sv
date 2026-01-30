@@ -29,7 +29,8 @@ import lynxTypes::*;
 /**
  * @brief   RX arbitration (tlast-based)
  *
- * Arbitrates incoming RX stream:
+ * Arbitrates incoming RX stream. POS: Changed to output AXI4SR for vIO Switch routing.
+ * Data goes to vIO Switch which routes to correct vFIU based on tdest.
  */
 module tcp_rx_arbiter (
     input  logic                                   aclk,
@@ -43,9 +44,12 @@ module tcp_rx_arbiter (
     metaIntf.s                                     s_rx_meta,
     metaIntf.m                                     m_rx_meta  [N_REGIONS],
 
-    // AXI4-Stream data (1 input -> N outputs), no TID
+    // POS: AXI4-Stream data (1 input -> 1 output with routing), now AXI4SR for vIO Switch
     AXI4S.s                                        s_axis_rx,
-    AXI4S.m                                        m_axis_rx  [N_REGIONS]
+    AXI4SR.m                                       m_axis_rx,      // Single output to vIO Switch
+
+    // POS: Route ID output for vIO Switch tdest
+    output logic [13:0]                            rx_route_id
 );
 
 
@@ -53,21 +57,10 @@ module tcp_rx_arbiter (
   logic [N_REGIONS-1 : 0] m_rx_meta_valid;
   logic [$bits(tcp_rx_meta_t)-1 : 0] m_rx_meta_data[N_REGIONS];
 
-  logic [N_REGIONS-1 : 0] m_axis_rx_ready;
-  logic [N_REGIONS-1 : 0] m_axis_rx_valid;
-  logic [AXI_DATA_BITS/8-1 : 0] m_axis_rx_keep [N_REGIONS];
-  logic [N_REGIONS-1 : 0] m_axis_rx_last;
-  logic [AXI_DATA_BITS-1 : 0] m_axis_rx_data [N_REGIONS];
- 
   for(genvar i = 0; i < N_REGIONS; i++) begin
     assign m_rx_meta_ready[i] = m_rx_meta[i].ready;
     assign m_rx_meta[i].valid = m_rx_meta_valid[i];
     assign m_rx_meta[i].data = m_rx_meta_data[i];
-    assign m_axis_rx_ready[i] = m_axis_rx[i].tready;
-    assign m_axis_rx[i].tvalid = m_axis_rx_valid[i];
-    assign m_axis_rx[i].tkeep = m_axis_rx_keep[i];
-    assign m_axis_rx[i].tlast = m_axis_rx_last[i];
-    assign m_axis_rx[i].tdata = m_axis_rx_data[i];
   end
 
 
@@ -203,7 +196,8 @@ module tcp_rx_arbiter (
   end
 
   // ---------------------------------------------------------------------------
-  // 3) Data demux 
+  // 3) Data path: Forward to vIO Switch with routing info
+  // POS: Changed from N-way demux to single AXI4SR output for vIO Switch
   // ---------------------------------------------------------------------------
   typedef enum logic { RD_IDLE, RD_FWD } n_state_rxdata_t;
 
@@ -230,24 +224,24 @@ module tcp_rx_arbiter (
       end
       RD_FWD: begin
         if ( s_axis_rx.tvalid
-          && m_axis_rx_ready[rxd_vfid_C]
+          && m_axis_rx.tready
           && s_axis_rx.tlast )
           state_rd_N = RD_IDLE;
       end
     endcase
   end
 
-  // DP
+  // DP - POS: Output single AXI4SR stream with vfid in tdest for vIO Switch routing
   always_comb begin : DP_RX_DATA
     rx_seq_src.ready = 1'b0;
 
-    s_axis_rx.tready  = 1'b0;
-    for (int i = 0; i < N_REGIONS; i++) begin
-      m_axis_rx_valid[i] = 1'b0;
-      m_axis_rx_data [i] = '0;
-      m_axis_rx_keep [i] = '0;
-      m_axis_rx_last [i] = 1'b0;
-    end
+    s_axis_rx.tready   = 1'b0;
+    m_axis_rx.tvalid   = 1'b0;
+    m_axis_rx.tdata    = '0;
+    m_axis_rx.tkeep    = '0;
+    m_axis_rx.tlast    = 1'b0;
+    m_axis_rx.tid      = '0;
+    m_axis_rx.tdest    = '0;
 
     rxd_vfid_N = rxd_vfid_C;
 
@@ -258,14 +252,23 @@ module tcp_rx_arbiter (
       end
 
       RD_FWD: begin
-        m_axis_rx_valid[rxd_vfid_C] = s_axis_rx.tvalid;
-        m_axis_rx_data[rxd_vfid_C] = s_axis_rx.tdata;
-        m_axis_rx_keep[rxd_vfid_C] = s_axis_rx.tkeep;
-        m_axis_rx_last[rxd_vfid_C] = s_axis_rx.tlast;
-        
-        s_axis_rx.tready             = m_axis_rx_ready[rxd_vfid_C];
+        m_axis_rx.tvalid = s_axis_rx.tvalid;
+        m_axis_rx.tdata  = s_axis_rx.tdata;
+        m_axis_rx.tkeep  = s_axis_rx.tkeep;
+        m_axis_rx.tlast  = s_axis_rx.tlast;
+        // POS: Set routing info for vIO Switch
+        // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+        // For RX from network: sender=0 (network), receiver=vfid (destination vFPGA)
+        m_axis_rx.tid    = '0;
+        m_axis_rx.tdest  = {4'b0, 4'b0, rxd_vfid_C[3:0], 2'b0};  // sender=0, receiver=vfid
+
+        s_axis_rx.tready = m_axis_rx.tready;
       end
     endcase
   end
+
+  // POS: Route ID output for external use (e.g., vFIU gateway)
+  // Format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+  assign rx_route_id = {4'b0, 4'b0, rxd_vfid_C[3:0], 2'b0};  // sender=0, receiver=vfid
 
 endmodule

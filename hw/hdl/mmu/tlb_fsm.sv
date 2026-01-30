@@ -129,7 +129,6 @@ logic [VADDR_BITS-1:0] vaddr_C, vaddr_N;
 logic last_C, last_N;
 logic [STRM_BITS-1:0] strm_C, strm_N;
 logic [DEST_BITS-1:0] dest_C, dest_N;
-logic [13:0] route_id_C, route_id_N;
 logic [PID_BITS-1:0] pid_C, pid_N;
 logic val_C, val_N;
 logic host_C, host_N;
@@ -268,7 +267,6 @@ always_ff @(posedge aclk) begin: PROC_REG
         host_C <= 'X;
         dest_C <= 'X;
         pid_C <= 'X;
-        route_id_C <= '0;
         val_C <= 1'b0;
         // TLB
         plen_C <= 'X;
@@ -318,7 +316,6 @@ always_ff @(posedge aclk) begin: PROC_REG
         host_C <= host_N;
         dest_C <= dest_N;
         pid_C <= pid_N;
-        route_id_C <= route_id_N;
         val_C <= val_N;
         // TLB
         plen_C <= plen_N;
@@ -630,7 +627,6 @@ always_comb begin: DP
 	last_N = last_C;
 	strm_N = strm_C;
     host_N = host_C;
-    route_id_N = route_id_C;
 	dest_N = dest_C;
 	pid_N = pid_C;
 	val_N = 1'b0;
@@ -728,7 +724,6 @@ always_comb begin: DP
 	hdma_req.paddr = paddr_C;
 	hdma_req.len = plen_C;
 	hdma_req.last = !len_C && last_C;
-	hdma_req.route_id = route_id_C;
 	hdma_req.rsrvd = 0;
 	hdma_valid = 1'b0;
 `endif 
@@ -760,7 +755,6 @@ always_comb begin: DP
         ddma_req[i].paddr = paddr_C;
         ddma_req[i].len = plen_C;
         ddma_req[i].last = !len_C && last_C;
-        ddma_req[i].route_id = route_id_C;
         ddma_req[i].rsrvd = 0;
         ddma_valid[i] = 1'b0;
     end
@@ -817,7 +811,6 @@ always_comb begin: DP
             `endif
 					vaddr_N = cch_buff_src.data.vaddr;
 					len_N = cch_buff_src.data.len;
-					route_id_N = cch_buff_src.data.route_id;  // Capture route_id (POS)
 					val_N = 1'b1;
 				end
 			end
@@ -846,7 +839,6 @@ always_comb begin: DP
             `endif
 					vaddr_N = s_req.data.vaddr;
 					len_N = s_req.data.len;
-					route_id_N = s_req.data.route_id;  // Capture route_id (POS)
 					val_N = 1'b1;
 				end
             end

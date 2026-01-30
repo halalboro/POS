@@ -156,8 +156,7 @@ metaIntf #(.STYPE(pf_t)) wr_pfault_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(inv_t)) rd_invldt_ctrl [N_REGIONS] (.*);
 metaIntf #(.STYPE(inv_t)) wr_invldt_ctrl [N_REGIONS] (.*);
 
-logic [N_REGIONS-1:0][98:0]  ep_ctrl;  // 99 bits per endpoint
-logic [N_REGIONS-1:0][13:0]  route_id; 
+logic [N_REGIONS-1:0][98:0]  ep_ctrl;  // 99 bits per endpoint 
 
 // Instantiate region MMUs
 for(genvar i = 0; i < N_REGIONS; i++) begin
@@ -202,8 +201,7 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
         .m_rd_invldt_irq(rd_invldt_irq[i]),
         .s_wr_invldt_ctrl(wr_invldt_ctrl[i]),
         .m_wr_invldt_irq(wr_invldt_irq[i]),
-        .ep_ctrl(ep_ctrl[i]),
-        .route_id(route_id[i])
+        .ep_ctrl(ep_ctrl[i])
     );
 
 end
@@ -297,10 +295,9 @@ for(genvar i = 0; i < N_REGIONS; i++) begin
             .m_invldt_wr(wr_invldt_ctrl[i]),        
             
             .s_notify(s_notify[i]), //
-            
+
             .usr_irq(usr_irq[i]), //
             .ep_ctrl(ep_ctrl[i]),
-            .route_id(route_id[i]),
             .io_ctrl(io_ctrl_switch[i])
         );
 

@@ -106,7 +106,25 @@ module vfiu_top #(
     // Routing capability control
     input logic [13:0]                           route_ctrl,
     input logic [13:0]                           route_in,
-    output logic [13:0]                          route_out
+    output logic [13:0]                          route_out,
+
+    // Host data path via vIO Switch (TX: vFPGA → Host, RX: Host → vFPGA)
+    // These connect to HOST_TX/HOST_RX ports on the vIO Switch
+    output logic[AXI_DATA_BITS-1:0]              axis_host_tx_to_switch_tdata,
+    output logic[AXI_DATA_BITS/8-1:0]            axis_host_tx_to_switch_tkeep,
+    output logic                                 axis_host_tx_to_switch_tlast,
+    input  logic                                 axis_host_tx_to_switch_tready,
+    output logic                                 axis_host_tx_to_switch_tvalid,
+    output logic[PID_BITS-1:0]                   axis_host_tx_to_switch_tid,
+    output logic[13:0]                           axis_host_tx_to_switch_tdest,
+
+    input  logic[AXI_DATA_BITS-1:0]              axis_host_rx_from_switch_tdata,
+    input  logic[AXI_DATA_BITS/8-1:0]            axis_host_rx_from_switch_tkeep,
+    input  logic                                 axis_host_rx_from_switch_tlast,
+    output logic                                 axis_host_rx_from_switch_tready,
+    input  logic                                 axis_host_rx_from_switch_tvalid,
+    input  logic[PID_BITS-1:0]                   axis_host_rx_from_switch_tid,
+    input  logic[13:0]                           axis_host_rx_from_switch_tdest
 );
 
     // Host descriptors
@@ -156,6 +174,14 @@ module vfiu_top #(
     `AXISR_ASSIGN(axis_host_send[0], axis_host_send_int[0]);
     `AXISR_ASSIGN(axis_host_recv_int[0], axis_host_recv[0]);
 
+    // Host data path via vIO Switch interfaces
+    // TX: vFPGA → gateway_send → vIO Switch → HOST_RX → DMA
+    // RX: DMA → HOST_TX → vIO Switch → gateway_recv → vFPGA
+    AXI4S  axis_host_tx_to_gateway ();     // From local_credits_host_wr to gateway_send
+    AXI4SR axis_host_tx_from_gateway ();   // From gateway_send to vIO Switch
+    AXI4SR axis_host_rx_to_gateway ();     // From vIO Switch to gateway_recv
+    AXI4S  axis_host_rx_from_gateway ();   // From gateway_recv to local_credits_host_rd
+
     assign axis_host_send[0].tvalid                = axisr_ul_sink_tvalid;
     assign axis_host_send[0].tdata                 = axisr_ul_sink_tdata;
     assign axis_host_send[0].tkeep                 = axisr_ul_sink_tkeep;
@@ -169,6 +195,24 @@ module vfiu_top #(
     assign axisr_ul_src_tlast                  = axis_host_recv[0].tlast;
     assign axis_host_recv[0].tready                 = axisr_ul_src_tready;
     assign axisr_ul_src_tid                    = axis_host_recv[0].tid;
+
+    // Host TX to vIO Switch (from gateway_send output)
+    assign axis_host_tx_to_switch_tvalid       = axis_host_tx_from_gateway.tvalid;
+    assign axis_host_tx_to_switch_tdata        = axis_host_tx_from_gateway.tdata;
+    assign axis_host_tx_to_switch_tkeep        = axis_host_tx_from_gateway.tkeep;
+    assign axis_host_tx_to_switch_tlast        = axis_host_tx_from_gateway.tlast;
+    assign axis_host_tx_to_switch_tid          = axis_host_tx_from_gateway.tid;
+    assign axis_host_tx_to_switch_tdest        = axis_host_tx_from_gateway.tdest;
+    assign axis_host_tx_from_gateway.tready    = axis_host_tx_to_switch_tready;
+
+    // Host RX from vIO Switch (to gateway_recv input)
+    assign axis_host_rx_to_gateway.tvalid      = axis_host_rx_from_switch_tvalid;
+    assign axis_host_rx_to_gateway.tdata       = axis_host_rx_from_switch_tdata;
+    assign axis_host_rx_to_gateway.tkeep       = axis_host_rx_from_switch_tkeep;
+    assign axis_host_rx_to_gateway.tlast       = axis_host_rx_from_switch_tlast;
+    assign axis_host_rx_to_gateway.tid         = axis_host_rx_from_switch_tid;
+    assign axis_host_rx_to_gateway.tdest       = axis_host_rx_from_switch_tdest;
+    assign axis_host_rx_from_switch_tready     = axis_host_rx_to_gateway.tready;
 
     // (* mark_debug = "true" *) logic host_sq_int_valid;
     // (* mark_debug = "true" *) logic host_sq_int_data_req_1_actv;
@@ -292,6 +336,15 @@ module vfiu_top #(
     `META_ASSIGN(local_sq_rd, local_sq_rd_host)
     `META_ASSIGN(local_sq_wr, local_sq_wr_host)
 
+    // ========================================================================================
+    // Host Data Path via vIO Switch
+    // ========================================================================================
+    // TX (Write to Host): vFPGA → local_credits_host_wr → gateway_send → vIO Switch → DMA
+    // RX (Read from Host): DMA → vIO Switch → gateway_recv → local_credits_host_rd → vFPGA
+    //
+    // NOTE: The direct DMA path (axis_dtu_src/sink) is kept but unused when vIO Switch is enabled.
+    // The new path goes through axis_host_tx_to_switch / axis_host_rx_from_switch.
+
     local_credits_host_rd #(
         .N_DESTS(N_STRM_AXI)
     ) inst_local_credits_host_rd (
@@ -299,7 +352,8 @@ module vfiu_top #(
         .aresetn(aresetn),
         .s_req(local_sq_rd_host),
         .m_req(local_cred_rd_host),
-        .s_axis(axis_dtu_sink_int),
+        // RX data now comes from gateway_recv (via vIO Switch) instead of direct DMA
+        .s_axis(axis_host_rx_from_gateway),
         .m_axis(axis_host_recv_int)
     );
 
@@ -311,8 +365,16 @@ module vfiu_top #(
         .s_req(local_sq_wr_host),
         .m_req(local_cred_wr_host),
         .s_axis(axis_host_send_int),
-        .m_axis(axis_dtu_src_int)
+        // TX data now goes to gateway_send (via vIO Switch) instead of direct DMA
+        .m_axis(axis_host_tx_to_gateway)
     );
+
+    // Tie off the direct DMA data paths (no longer used when routing through vIO Switch)
+    assign axis_dtu_src_int.tvalid = 1'b0;
+    assign axis_dtu_src_int.tdata  = '0;
+    assign axis_dtu_src_int.tkeep  = '0;
+    assign axis_dtu_src_int.tlast  = 1'b0;
+    assign axis_dtu_sink_int.tready = 1'b1;  // Always ready to drain any stale data
 
     // ========================================================================================
     // Memory Gateway (gate_mem): Security validation with endpoint checking
@@ -326,12 +388,10 @@ module vfiu_top #(
         .aresetn(aresetn),
         // Memory endpoint control for security validation
         .ep_ctrl(mem_ctrl),
-      
-        .route_id(route_ctrl),
         // Input: unfiltered requests from credit modules
         .s_rd_req(local_cred_rd_host),
         .s_wr_req(local_cred_wr_host),
-        // Output: filtered requests (only authorized) with route_id injected
+        // Output: filtered requests (only authorized)
         .m_rd_req(filtered_rd_req),
         .m_wr_req(filtered_wr_req)
     );
@@ -345,30 +405,47 @@ module vfiu_top #(
     `META_ASSIGN(bpss_wr_req_int, bpss_wr_req)
 
     // ========================================================================================
-    // Gateway Send (gate_send): Routing capability for vIO Switch
+    // Gateway Send (gate_send): Routing capability for vIO Switch + Host TX data path
     // ========================================================================================
     // Sets the route_out signal for the vIO Switch based on route_ctrl configuration.
+    // Also handles host TX data path: attaches tdest for vIO Switch routing to HOST_RX.
     // VFPGA_ID is passed through for hardcoded test mode routing.
     gateway_send #(
         .N_DESTS(N_STRM_AXI),
-        .ID(VFPGA_ID)
+        .ID(VFPGA_ID),
+        .N_REGIONS(N_ID)
     ) inst_gateway_send (
         .aclk(aclk),
         .aresetn(aresetn),
         .route_ctrl(route_ctrl),
-        .route_out(route_out)
+        .route_out(route_out),
+        // Host TX data path (vFPGA → vIO Switch → DMA)
+        .s_axis_host(axis_host_tx_to_gateway),
+        .m_axis_host(axis_host_tx_from_gateway)
     );
 
     // ========================================================================================
-    // Gateway Recv (gate_recv): Validates incoming routes from vIO Switch
+    // Gateway Recv (gate_recv): Validates incoming routes from vIO Switch + Host RX data path
     // ========================================================================================
+    // Validates incoming routes and handles host RX data path with bypass logic.
+    // If sender_id == my_vfid, it's my own validated request returning → BYPASS.
+    logic route_valid_out;
+    logic route_bypass_out;
+
     gateway_recv #(
-        .N_DESTS(N_STRM_AXI)
+        .N_DESTS(N_STRM_AXI),
+        .ID(VFPGA_ID),
+        .N_REGIONS(N_ID)
     ) inst_gateway_recv (
         .aclk(aclk),
         .aresetn(aresetn),
         .route_ctrl(route_ctrl),
-        .route_in(route_in)
+        .route_in(route_in),
+        .route_valid(route_valid_out),
+        .route_bypass(route_bypass_out),
+        // Host RX data path (DMA → vIO Switch → vFPGA)
+        .s_axis_host(axis_host_rx_to_gateway),
+        .m_axis_host(axis_host_rx_from_gateway)
     );
 
     //

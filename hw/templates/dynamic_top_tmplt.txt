@@ -79,6 +79,8 @@ module design_dynamic_top #(
     AXI4S.s                                     s_axis_rdma,
     AXI4S.m                                     m_axis_rdma_req,
     AXI4S.m                                     m_axis_rdma_rsp,
+    // POS: RDMA TX route_id for VIU VLAN tagging
+    output logic [13:0]                         m_rdma_tx_route_id,
 
 {% endif %}     
 {% if cnfg.en_tcp %}
@@ -98,6 +100,17 @@ module design_dynamic_top #(
     // POS: TCP route_id for VIU routing
     output logic [13:0]                         m_tcp_tx_route_id,
     output logic                                m_tcp_tx_route_id_valid,
+
+{% endif %}
+{% if cnfg.en_bypass %}
+    // Bypass (raw Ethernet bypass path)
+    metaIntf.m                                  m_bypass_sq,
+    metaIntf.s                                  s_bypass_rq_rd,
+    metaIntf.s                                  s_bypass_rq_wr,
+    AXI4S.s                                     s_axis_bypass,
+    AXI4S.m                                     m_axis_bypass,
+    // POS: Bypass TX route_id for VIU VLAN tagging
+    output logic [13:0]                         m_bypass_tx_route_id,
 
 {% endif %}
 {% if cnfg.en_wb %}
@@ -187,16 +200,30 @@ module design_dynamic_top #(
 
     axis_reg_array #(.N_STAGES(N_REG_DYN_HOST_S0)) inst_host_axis_reg_arr_s0_in  (.aclk(aclk), .aresetn(aresetn), .s_axis(s_axis_host),      .m_axis(axis_host_in_s0));
     axis_reg_array #(.N_STAGES(N_REG_DYN_HOST_S0)) inst_host_axis_reg_arr_s0_out (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_host_out_s0), .m_axis(m_axis_host));
-    
-    // Multiplexing 
+
+    // Multiplexing (via vIO Switch)
     // ----------------------------------------------------------------------
+    // NOTE: With vIO Switch integration, the host data path is routed through
+    // the vIO Switch instead of the direct axis_mux_host_src/sink muxes.
+    // The vIO Switch routes host data based on route_id (vfid) attached as tdest.
+    //
+    // OLD PATH: DMA → axis_mux_host_src → axis_host_in_s1[i] → user
+    // NEW PATH: DMA → vIO Switch HOST_TX → vFIU demux → axis_host_in_s1[i] → user
+    //
+    // The mux metadata interfaces are kept for compatibility but the data
+    // routing is handled by vIO Switch.
     AXI4S axis_host_in_s1 [N_REGIONS] ();
     AXI4S axis_host_out_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(mux_host_t)) mux_host_rd_user ();
     metaIntf #(.STYPE(mux_host_t)) mux_host_wr_user ();
 
-    axis_mux_host_src  inst_host_mux_in  (.aclk(aclk), .aresetn(aresetn), .s_mux(mux_host_rd_user), .s_axis(axis_host_in_s0),  .m_axis(axis_host_in_s1));
-    axis_mux_host_sink inst_host_mux_out (.aclk(aclk), .aresetn(aresetn), .s_mux(mux_host_wr_user), .s_axis(axis_host_out_s1), .m_axis(axis_host_out_s0));
+    // The old mux modules are commented out - routing is now via vIO Switch
+    // axis_mux_host_src  inst_host_mux_in  (.aclk(aclk), .aresetn(aresetn), .s_mux(mux_host_rd_user), .s_axis(axis_host_in_s0),  .m_axis(axis_host_in_s1));
+    // axis_mux_host_sink inst_host_mux_out (.aclk(aclk), .aresetn(aresetn), .s_mux(mux_host_wr_user), .s_axis(axis_host_out_s1), .m_axis(axis_host_out_s0));
+
+    // mux_host_rd_user is consumed by dma_rd_route_sync (see vIO Switch section)
+    // mux_host_wr_user is tied off - write metadata is handled separately
+    assign mux_host_wr_user.ready = 1'b1;
     
     // Credits 
     // ----------------------------------------------------------------------
@@ -454,38 +481,757 @@ module design_dynamic_top #(
         .m_axis_rdma_wr_u(axis_rdma_in_s0)
     );
 
-    // Arbitrate and parse
+    // Arbitrate METADATA only (data routing via vIO Switch)
     // ----------------------------------------------------------------------
     metaIntf #(.STYPE(dreq_t)) rdma_sq_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) rdma_cq_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) rdma_host_cq_s1 ();
     metaIntf #(.STYPE(req_t)) rdma_rq_rd_s1 [N_REGIONS] ();
     metaIntf #(.STYPE(req_t)) rdma_rq_wr_s1 [N_REGIONS] ();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_in_s1 [N_REGIONS] ();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_req_s1 [N_REGIONS] ();
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_rsp_s1 [N_REGIONS] ();
 
-    rdma_arbiter (
+    // vIO Switch routing signals from metadata arbiter (full route_id format)
+    // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    logic [13:0] rdma_route_id_rx;
+    logic [13:0] rdma_route_id_tx;
+
+    rdma_meta_only_arbiter inst_rdma_meta_arbiter (
         .aclk(aclk),
         .aresetn(aresetn),
 
+        // Network side - metadata only
         .m_rdma_sq_net(rdma_sq_s0),
         .s_rdma_cq_net(rdma_cq_s0),
-        .s_rdma_rq_rd_net(rdma_rq_rd_s0), 
-        .s_rdma_rq_wr_net(rdma_rq_wr_s0), 
-        .m_axis_rdma_rd_req_net(axis_rdma_out_req_s0),
-        .m_axis_rdma_rd_rsp_net(axis_rdma_out_rsp_s0),
-        .s_axis_rdma_wr_net(axis_rdma_in_s0),
+        .s_rdma_rq_rd_net(rdma_rq_rd_s0),
+        .s_rdma_rq_wr_net(rdma_rq_wr_s0),
 
+        // User side - metadata only (per region)
         .s_rdma_sq_user(rdma_sq_s1),
         .m_rdma_cq_user(rdma_cq_s1),
         .m_rdma_host_cq_user(rdma_host_cq_s1),
-        .m_rdma_rq_rd_user(rdma_rq_rd_s1), 
-        .m_rdma_rq_wr_user(rdma_rq_wr_s1), 
-        .s_axis_rdma_rd_req_user(axis_rdma_out_req_s1),
-        .s_axis_rdma_rd_rsp_user(axis_rdma_out_rsp_s1),
-        .m_axis_rdma_wr_user(axis_rdma_in_s1)
+        .m_rdma_rq_rd_user(rdma_rq_rd_s1),
+        .m_rdma_rq_wr_user(rdma_rq_wr_s1),
+
+        // vIO Switch routing (full route_id with sender_id encoded)
+        .route_id_rx(rdma_route_id_rx),
+        .route_id_tx(rdma_route_id_tx)
     );
+
+{% if cnfg.en_bypass %}
+    // ============================================================================
+    // BYPASS - Network Interface (s0 stage)
+    // ============================================================================
+    // Bypass has same architecture as RDMA: metadata arbitration + vIO Switch data routing
+    // s0 stage connects to network_stack's bypass_stack
+    // ----------------------------------------------------------------------
+
+    // Slice 0 - Network side
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_s0 ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s0 ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s0 ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_s0 ();   // RX: write data from network
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_s0 ();  // TX: read response to network
+
+    bypass_slice_array_dyn #(
+        .N_STAGES(N_REG_DYN_NET_S0)
+    ) inst_bypass_slice_array_0 (
+        .aclk(aclk),
+        .aresetn(aresetn),
+
+        // Network side (to/from bypass_stack via module ports)
+        .m_bypass_sq_n(m_bypass_sq),
+        .s_bypass_rq_rd_n(s_bypass_rq_rd),
+        .s_bypass_rq_wr_n(s_bypass_rq_wr),
+        .s_axis_bypass_wr_n(s_axis_bypass),
+        .m_axis_bypass_rd_rsp_n(m_axis_bypass),
+
+        // User side (to/from arbiter)
+        .s_bypass_sq_u(bypass_sq_s0),
+        .m_bypass_rq_rd_u(bypass_rq_rd_s0),
+        .m_bypass_rq_wr_u(bypass_rq_wr_s0),
+        .s_axis_bypass_rd_rsp_u(axis_bypass_out_s0),
+        .m_axis_bypass_wr_u(axis_bypass_in_s0)
+    );
+
+    // Arbitrate BYPASS METADATA only (data routing via vIO Switch)
+    // ----------------------------------------------------------------------
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_s1 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s1 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s1 [N_REGIONS] ();
+
+    // vIO Switch routing signals from bypass metadata arbiter
+    logic [13:0] bypass_route_id_rx;
+    logic [13:0] bypass_route_id_tx;
+
+    bypass_meta_only_arbiter inst_bypass_meta_arbiter (
+        .aclk(aclk),
+        .aresetn(aresetn),
+
+        // Network side - metadata only (to/from bypass_slice_array_dyn)
+        .m_bypass_sq_net(bypass_sq_s0),
+        .s_bypass_rq_rd_net(bypass_rq_rd_s0),
+        .s_bypass_rq_wr_net(bypass_rq_wr_s0),
+
+        // User side - metadata only (per region, to ccross/slice/user)
+        .s_bypass_sq_user(bypass_sq_s1),
+        .m_bypass_rq_rd_user(bypass_rq_rd_s1),
+        .m_bypass_rq_wr_user(bypass_rq_wr_s1),
+
+        // vIO Switch routing (full route_id with sender_id encoded)
+        .route_id_rx(bypass_route_id_rx),
+        .route_id_tx(bypass_route_id_tx)
+    );
+
+    // Export bypass TX route_id to module port for VIU VLAN tagging
+    assign m_bypass_tx_route_id = bypass_route_id_tx;
+{% endif %}
+
+    // ============================================================================
+    // POS vIO Switch Data Routing
+    // ============================================================================
+    // Data paths route through vIO Switch (centralized crossbar based on tdest).
+    // vIO Switch uses AXI4SR interfaces (with tid/tdest for routing).
+    //
+    // Data flow:
+    //   RDMA RX (network->vFPGA): axis_rdma_in_s0 -> vIO Switch -> vFIU[i] -> user
+    //   RDMA TX REQ (vFPGA->network): user -> vFIU[i] -> vIO Switch -> axis_rdma_out_req_s0
+    //   RDMA TX RSP (vFPGA->network): user -> vFIU[i] -> vIO Switch -> axis_rdma_out_rsp_s0
+    //   vFPGA-to-vFPGA: user[i] -> vFIU[i] -> vIO Switch -> vFIU[j] -> user[j]
+    // ----------------------------------------------------------------------
+
+{% if cnfg.en_rdma %}
+    // Per-region RDMA data interfaces (output from vIO Switch to user logic)
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_in_s1 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_req_s1 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_out_rsp_s1 [N_REGIONS] ();
+{% endif %}
+
+{% if cnfg.en_bypass %}
+    // Bypass per-region data interfaces (RX = write data from network, TX = read response to network)
+    // Note: bypass_sq_s1, bypass_rq_rd_s1, bypass_rq_wr_s1 are declared above with bypass_meta_only_arbiter
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_s1 [N_REGIONS] ();   // RX: vIO Switch -> vFIU -> user
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_s1 [N_REGIONS] ();  // TX: user -> vFIU -> vIO Switch
+{% endif %}
+
+    // AXI4SR interfaces for vIO Switch - RDMA ports (always declared for vio_switch compatibility)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_rx_to_switch ();      // RDMA RX -> Switch
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_rx_from_switch ();    // Switch -> (unused, RDMA RX is input only)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_req_to_switch ();  // (unused, TX REQ is output only)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_req_from_switch ();// Switch -> RDMA TX REQ
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_rsp_to_switch ();  // (unused, TX RSP is output only)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_rdma_tx_rsp_from_switch ();// Switch -> RDMA TX RSP
+
+{% if not cnfg.en_rdma %}
+    // RDMA disabled - tie off all RDMA vIO Switch interfaces
+    assign axisr_rdma_rx_to_switch.tvalid = 1'b0;
+    assign axisr_rdma_rx_to_switch.tdata  = '0;
+    assign axisr_rdma_rx_to_switch.tkeep  = '0;
+    assign axisr_rdma_rx_to_switch.tlast  = 1'b0;
+    assign axisr_rdma_rx_to_switch.tid    = '0;
+    assign axisr_rdma_rx_to_switch.tdest  = '0;
+    assign axisr_rdma_rx_from_switch.tready = 1'b1;
+    assign axisr_rdma_tx_req_to_switch.tvalid = 1'b0;
+    assign axisr_rdma_tx_req_to_switch.tdata  = '0;
+    assign axisr_rdma_tx_req_to_switch.tkeep  = '0;
+    assign axisr_rdma_tx_req_to_switch.tlast  = 1'b0;
+    assign axisr_rdma_tx_req_to_switch.tid    = '0;
+    assign axisr_rdma_tx_req_to_switch.tdest  = '0;
+    assign axisr_rdma_tx_req_from_switch.tready = 1'b1;
+    assign axisr_rdma_tx_rsp_to_switch.tvalid = 1'b0;
+    assign axisr_rdma_tx_rsp_to_switch.tdata  = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tkeep  = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tlast  = 1'b0;
+    assign axisr_rdma_tx_rsp_to_switch.tid    = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tdest  = '0;
+    assign axisr_rdma_tx_rsp_from_switch.tready = 1'b1;
+{% endif %}
+
+    // vFIU interfaces to vIO Switch (per region)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_vfiu_to_switch [N_REGIONS] ();   // vFIU -> Switch (user TX)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_vfiu_from_switch [N_REGIONS] (); // Switch -> vFIU (user RX)
+
+    // Route control signals for vFIUs (from host configuration)
+    logic [N_REGIONS-1:0][13:0] vfiu_route_ctrl;
+    logic [N_REGIONS-1:0][13:0] vfiu_route_in;
+    logic [N_REGIONS-1:0][13:0] vfiu_route_out;
+    logic [N_REGIONS-1:0]       vfiu_route_valid;  // Incoming route validation result
+
+    // Route extracted from RDMA TX path (vIO Switch output) for VIU VLAN tagging
+    logic [13:0] rdma_tx_route_out;
+
+    // Hardcoded route_ctrl for testing (will be replaced by host configuration)
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_route_ctrl
+        assign vfiu_route_ctrl[i] = 14'h0000;  // Default: no restriction
+    end
+
+{% if cnfg.en_rdma %}
+    // Convert AXI4S (network) to AXI4SR (vIO Switch) for RDMA RX
+    // tdest = route_id_rx from metadata arbiter (includes sender_id=PORT_RDMA_RX)
+    assign axisr_rdma_rx_to_switch.tvalid = axis_rdma_in_s0.tvalid;
+    assign axisr_rdma_rx_to_switch.tdata  = axis_rdma_in_s0.tdata;
+    assign axisr_rdma_rx_to_switch.tkeep  = axis_rdma_in_s0.tkeep;
+    assign axisr_rdma_rx_to_switch.tlast  = axis_rdma_in_s0.tlast;
+    assign axisr_rdma_rx_to_switch.tid    = '0;
+    // tdest = full route_id with sender_id=PORT_RDMA_RX, receiver_id=vfid
+    assign axisr_rdma_rx_to_switch.tdest  = rdma_route_id_rx;
+    assign axis_rdma_in_s0.tready         = axisr_rdma_rx_to_switch.tready;
+
+    // Convert AXI4SR (vIO Switch) to AXI4S (network) for RDMA TX REQ
+    // Extract route from tdest for VIU VLAN tagging
+    assign axis_rdma_out_req_s0.tvalid         = axisr_rdma_tx_req_from_switch.tvalid;
+    assign axis_rdma_out_req_s0.tdata          = axisr_rdma_tx_req_from_switch.tdata;
+    assign axis_rdma_out_req_s0.tkeep          = axisr_rdma_tx_req_from_switch.tkeep;
+    assign axis_rdma_out_req_s0.tlast          = axisr_rdma_tx_req_from_switch.tlast;
+    assign axisr_rdma_tx_req_from_switch.tready = axis_rdma_out_req_s0.tready;
+
+    // Convert AXI4SR (vIO Switch) to AXI4S (network) for RDMA TX RSP
+    assign axis_rdma_out_rsp_s0.tvalid         = axisr_rdma_tx_rsp_from_switch.tvalid;
+    assign axis_rdma_out_rsp_s0.tdata          = axisr_rdma_tx_rsp_from_switch.tdata;
+    assign axis_rdma_out_rsp_s0.tkeep          = axisr_rdma_tx_rsp_from_switch.tkeep;
+    assign axis_rdma_out_rsp_s0.tlast          = axisr_rdma_tx_rsp_from_switch.tlast;
+    assign axisr_rdma_tx_rsp_from_switch.tready = axis_rdma_out_rsp_s0.tready;
+
+    // Extract route_id from TX path for VIU gateway_tx (VLAN tagging)
+    // Priority: TX REQ over TX RSP (they shouldn't be simultaneous, but just in case)
+    // This route_id is passed to VIU to encode in the VLAN tag for outgoing packets
+    assign rdma_tx_route_out = axisr_rdma_tx_req_from_switch.tvalid ?
+                               axisr_rdma_tx_req_from_switch.tdest :
+                               axisr_rdma_tx_rsp_from_switch.tdest;
+
+    // Export TX route to module port for VIU connection
+    assign m_rdma_tx_route_id = rdma_tx_route_out;
+
+    // Tie off unused sink interfaces (these ports only receive, not send)
+    assign axisr_rdma_tx_req_to_switch.tvalid = 1'b0;
+    assign axisr_rdma_tx_req_to_switch.tdata  = '0;
+    assign axisr_rdma_tx_req_to_switch.tkeep  = '0;
+    assign axisr_rdma_tx_req_to_switch.tlast  = 1'b0;
+    assign axisr_rdma_tx_req_to_switch.tid    = '0;
+    assign axisr_rdma_tx_req_to_switch.tdest  = '0;
+
+    assign axisr_rdma_tx_rsp_to_switch.tvalid = 1'b0;
+    assign axisr_rdma_tx_rsp_to_switch.tdata  = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tkeep  = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tlast  = 1'b0;
+    assign axisr_rdma_tx_rsp_to_switch.tid    = '0;
+    assign axisr_rdma_tx_rsp_to_switch.tdest  = '0;
+
+    assign axisr_rdma_rx_from_switch.tready = 1'b1;  // Always accept (unused)
+{% endif %}
+
+    // ========================================================================================
+    // Host vIO Switch Interfaces
+    // ========================================================================================
+    // HOST_TX: DMA read response data → vIO Switch → vFIU (to vFPGA)
+    // HOST_RX: vFIU → vIO Switch → DMA write data (from vFPGA)
+    //
+    // The host data path is routed through the vIO Switch for proper isolation.
+    // - HOST_TX receives DMA read responses with route_id attached as tdest
+    // - HOST_RX sends vFPGA write data to DMA after vIO Switch routing
+    //
+    // Port assignments (from vio_switch):
+    //   PORT_HOST_TX = N_REGIONS + 0
+    //   PORT_HOST_RX = N_REGIONS + 1
+
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_tx_to_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_tx_from_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_to_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_from_switch ();
+
+    // Per-vFIU host data interfaces (connect to vfiu_top host vIO Switch ports)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_vfiu_tx [N_REGIONS] ();  // vFIU → vIO Switch
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_host_vfiu_rx [N_REGIONS] ();    // vIO Switch → vFIU
+
+    // Per-vFIU P2P (vFPGA-to-vFPGA) data interfaces
+    // These go directly to user logic (like host) but are validated by gateway_recv
+    // RX: validated by gateway_recv, stripped of tdest before user
+    // TX: user specifies target vFPGA in tdest[5:2], sender_id auto-filled
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_vfiu_rx [N_REGIONS] ();   // vIO Switch → gateway_recv
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_p2p_in [N_REGIONS] ();          // To user logic (stripped tdest)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_out [N_REGIONS] ();       // From user (with target vFPGA in tdest)
+
+    // HOST_TX: DMA read response → vIO Switch
+    // Use dma_rd_route_sync to synchronize mux metadata (vfid) with data transfers.
+    // The mux metadata comes from mmu_arbiter and tells us which vFPGA each data chunk belongs to.
+    // Route format: [13:10]=reserved, [9:6]=sender_id (PORT_HOST_TX), [5:2]=receiver_id (vfid), [1:0]=flags
+    dma_rd_route_sync #(
+        .MUX_DATA_BITS(AXI_DATA_BITS),
+        .N_REGIONS(N_REGIONS)
+    ) inst_dma_rd_route_sync (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_mux(mux_host_rd_user),
+        .s_axis(axis_host_in_s0),
+        .m_axis(axisr_host_tx_to_switch)
+    );
+
+    // HOST_TX src goes to vFIU demux (handled in gen_vfiu_connections)
+    // axisr_host_tx_from_switch is connected to vFIU RX path
+
+    // HOST_RX: vIO Switch → DMA write data
+    // Connect HOST_RX src to axis_host_out_s0 (DMA write data input)
+    assign axis_host_out_s0.tvalid        = axisr_host_rx_from_switch.tvalid;
+    assign axis_host_out_s0.tdata         = axisr_host_rx_from_switch.tdata;
+    assign axis_host_out_s0.tkeep         = axisr_host_rx_from_switch.tkeep;
+    assign axis_host_out_s0.tlast         = axisr_host_rx_from_switch.tlast;
+    assign axisr_host_rx_from_switch.tready = axis_host_out_s0.tready;
+
+    // HOST_RX sink comes from vFIU mux (handled in gen_vfiu_connections)
+    // axisr_host_rx_to_switch is connected to vFIU TX path
+
+    // TCP vIO Switch interface
+    // POS: TCP data flows bidirectionally through vIO Switch for routing
+    // - RX (network->vFPGA): axis_tcp_in_s0 -> vIO Switch TCP sink -> vFIU -> user
+    // - TX (vFPGA->network): user -> vFIU -> vIO Switch TCP src -> axis_tcp_out_s0
+    //
+    // Note: vIO Switch has a single bidirectional TCP port (sink/src).
+    // Metadata is handled by tcp_meta_only_arbiter, data routing by vIO Switch.
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_to_switch ();   // RX data to vIO Switch
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_tcp_from_switch (); // TX data from vIO Switch
+
+{% if not cnfg.en_tcp %}
+    // TCP disabled - tie off TCP vIO Switch interfaces
+    assign axisr_tcp_to_switch.tvalid = 1'b0;
+    assign axisr_tcp_to_switch.tdata  = '0;
+    assign axisr_tcp_to_switch.tkeep  = '0;
+    assign axisr_tcp_to_switch.tlast  = 1'b0;
+    assign axisr_tcp_to_switch.tid    = '0;
+    assign axisr_tcp_to_switch.tdest  = '0;
+    assign axisr_tcp_from_switch.tready = 1'b1;
+{% endif %}
+
+    // Bypass vIO Switch interfaces (always declared for vio_switch compatibility)
+    // POS: Bypass data flows through vIO Switch for routing
+    // - RX (network->vFPGA): bypass_stack -> vIO Switch -> vFIU -> user
+    // - TX (vFPGA->network): user -> vFIU -> vIO Switch -> bypass_stack
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_rx_to_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_rx_from_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_tx_req_to_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_tx_req_from_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_tx_rsp_to_switch ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_tx_rsp_from_switch ();
+
+{% if cnfg.en_bypass %}
+    // Bypass enabled - connect to bypass_stack via axis_bypass_in_s0/axis_bypass_out_s0
+    // Note: Bypass RX/TX data flows through vFIU demux/mux, not directly to these ports
+    // These ports are for bypass_stack internal use - currently tied off as data
+    // flows through vFIU using axis_bypass_in_s1/axis_bypass_out_s1 arrays
+    assign axisr_bypass_tx_req_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_tx_req_to_switch.tdata  = '0;
+    assign axisr_bypass_tx_req_to_switch.tkeep  = '0;
+    assign axisr_bypass_tx_req_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_tx_req_to_switch.tid    = '0;
+    assign axisr_bypass_tx_req_to_switch.tdest  = '0;
+    assign axisr_bypass_tx_req_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_tx_rsp_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_tx_rsp_to_switch.tdata  = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tkeep  = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_tx_rsp_to_switch.tid    = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tdest  = '0;
+    assign axisr_bypass_tx_rsp_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_rx_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_rx_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_rx_to_switch.tdata  = '0;
+    assign axisr_bypass_rx_to_switch.tkeep  = '0;
+    assign axisr_bypass_rx_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_rx_to_switch.tid    = '0;
+    assign axisr_bypass_rx_to_switch.tdest  = '0;
+{% else %}
+    // Bypass disabled - tie off all bypass vIO Switch interfaces
+    assign axisr_bypass_tx_req_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_tx_req_to_switch.tdata  = '0;
+    assign axisr_bypass_tx_req_to_switch.tkeep  = '0;
+    assign axisr_bypass_tx_req_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_tx_req_to_switch.tid    = '0;
+    assign axisr_bypass_tx_req_to_switch.tdest  = '0;
+    assign axisr_bypass_tx_req_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_tx_rsp_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_tx_rsp_to_switch.tdata  = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tkeep  = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_tx_rsp_to_switch.tid    = '0;
+    assign axisr_bypass_tx_rsp_to_switch.tdest  = '0;
+    assign axisr_bypass_tx_rsp_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_rx_from_switch.tready = 1'b1;
+
+    assign axisr_bypass_rx_to_switch.tvalid = 1'b0;
+    assign axisr_bypass_rx_to_switch.tdata  = '0;
+    assign axisr_bypass_rx_to_switch.tkeep  = '0;
+    assign axisr_bypass_rx_to_switch.tlast  = 1'b0;
+    assign axisr_bypass_rx_to_switch.tid    = '0;
+    assign axisr_bypass_rx_to_switch.tdest  = '0;
+{% endif %}
+
+    // Instantiate vIO Switch (full crossbar for data routing)
+    vio_switch_{{ cnfg.n_reg }} inst_vio_switch (
+        .aclk(aclk),
+        .aresetn(aresetn),
+
+        // Route signals for vFIUs
+        .route_in(vfiu_route_out),
+        .route_out(vfiu_route_in),
+
+        // Host interfaces (unused for RDMA test)
+        .data_host_tx_sink(axisr_host_tx_to_switch),
+        .data_host_tx_src(axisr_host_tx_from_switch),
+        .data_host_rx_sink(axisr_host_rx_to_switch),
+        .data_host_rx_src(axisr_host_rx_from_switch),
+
+        // vFIU interfaces (per region)
+        .data_vfiu_sink(axisr_vfiu_to_switch),
+        .data_vfiu_src(axisr_vfiu_from_switch),
+
+        // RDMA interfaces
+        .data_rdma_rx_sink(axisr_rdma_rx_to_switch),
+        .data_rdma_rx_src(axisr_rdma_rx_from_switch),
+        .data_rdma_tx_req_sink(axisr_rdma_tx_req_to_switch),
+        .data_rdma_tx_req_src(axisr_rdma_tx_req_from_switch),
+        .data_rdma_tx_rsp_sink(axisr_rdma_tx_rsp_to_switch),
+        .data_rdma_tx_rsp_src(axisr_rdma_tx_rsp_from_switch),
+
+        // TCP interface - POS: RX path goes through vIO Switch for vFIU routing
+        .data_tcp_sink(axisr_tcp_to_switch),   // TCP RX from arbiter to vIO Switch
+        .data_tcp_src(axisr_tcp_from_switch),  // Unused (TX bypasses vIO Switch)
+
+        // Bypass interfaces (unused for RDMA test)
+        .data_bypass_rx_sink(axisr_bypass_rx_to_switch),
+        .data_bypass_rx_src(axisr_bypass_rx_from_switch),
+        .data_bypass_tx_req_sink(axisr_bypass_tx_req_to_switch),
+        .data_bypass_tx_req_src(axisr_bypass_tx_req_from_switch),
+        .data_bypass_tx_rsp_sink(axisr_bypass_tx_rsp_to_switch),
+        .data_bypass_tx_rsp_src(axisr_bypass_tx_rsp_from_switch)
+    );
+
+    // Connect vFIU to vIO Switch and user logic (per region)
+    // vFIU handles BOTH RDMA and TCP data flows:
+    //   RX: vIO Switch routes RDMA_RX or TCP to vFIU src -> demux to RDMA or TCP arrays
+    //   TX: Mux from RDMA or TCP arrays -> vFIU sink -> vIO Switch routes to destination
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_vfiu_connections
+
+        // ====================================================================
+        // vFIU RX Path: vIO Switch -> vFIU src -> Demux to RDMA/TCP arrays
+        // ====================================================================
+        // The vIO Switch multiplexes RDMA RX and TCP RX onto vFIU src.
+        // We demux based on the sender_id in route_in (from vIO Switch route_out).
+        // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+        //
+        // Sender IDs (matching vIO Switch port assignments):
+        //   PORT_RDMA_RX = N_REGIONS + 2 (e.g., 4 for N_REGIONS=2)
+        //   PORT_TCP     = N_REGIONS + 5 (e.g., 7 for N_REGIONS=2)
+        //
+        // The sender_id is set by the meta_only_arbiters when encoding route_id_rx.
+        // --------------------------------------------------------------------
+
+        // Port ID constants (must match vIO Switch and meta_only_arbiters)
+        localparam logic [3:0] PORT_HOST_TX   = N_REGIONS + 0;
+        localparam logic [3:0] PORT_HOST_RX   = N_REGIONS + 1;
+        localparam logic [3:0] PORT_RDMA_RX   = N_REGIONS + 2;
+        localparam logic [3:0] PORT_TCP       = N_REGIONS + 5;
+        localparam logic [3:0] PORT_BYPASS_RX = N_REGIONS + 6;
+
+        // Extract sender_id from route (bits [9:6])
+        logic [3:0] vfiu_rx_sender_id;
+        assign vfiu_rx_sender_id = vfiu_route_in[i][9:6];
+
+        // Determine protocol based on sender_id
+        logic vfiu_rx_is_host_tx;
+{% if cnfg.en_tcp %}
+        logic vfiu_rx_is_tcp;
+{% endif %}
+{% if cnfg.en_bypass %}
+        logic vfiu_rx_is_bypass;
+{% endif %}
+{% if cnfg.en_rdma %}
+        logic vfiu_rx_is_rdma;
+{% endif %}
+        logic vfiu_rx_is_p2p;      // vFPGA-to-vFPGA traffic
+        assign vfiu_rx_is_host_tx = (vfiu_rx_sender_id == PORT_HOST_TX);
+{% if cnfg.en_tcp %}
+        assign vfiu_rx_is_tcp     = (vfiu_rx_sender_id == PORT_TCP);
+{% endif %}
+{% if cnfg.en_bypass %}
+        assign vfiu_rx_is_bypass  = (vfiu_rx_sender_id == PORT_BYPASS_RX);
+{% endif %}
+        // P2P: sender_id < N_REGIONS means it's from another vFPGA
+        assign vfiu_rx_is_p2p     = (vfiu_rx_sender_id < N_REGIONS) & (vfiu_rx_sender_id != i);
+{% if cnfg.en_rdma %}
+        // RDMA: only if not any of the above (PORT_RDMA_RX or other RDMA ports)
+        assign vfiu_rx_is_rdma    = ~vfiu_rx_is_host_tx
+{% if cnfg.en_tcp %}
+                                    & ~vfiu_rx_is_tcp
+{% endif %}
+{% if cnfg.en_bypass %}
+                                    & ~vfiu_rx_is_bypass
+{% endif %}
+                                    & ~vfiu_rx_is_p2p;
+{% endif %}
+
+        // Demux vFIU RX to Host, RDMA, TCP, or Bypass based on sender
+        // Host RX path (DMA read response data → vFPGA)
+        // This goes to axisr_host_vfiu_rx which connects to gateway_recv in vfiu_top
+        assign axis_host_vfiu_rx[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_host_tx;
+        assign axis_host_vfiu_rx[i].tdata       = axisr_vfiu_from_switch[i].tdata;
+        assign axis_host_vfiu_rx[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
+        assign axis_host_vfiu_rx[i].tlast       = axisr_vfiu_from_switch[i].tlast;
+
+{% if cnfg.en_rdma %}
+        // RDMA RX path
+        assign axis_rdma_in_s1[i].tvalid        = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_rdma;
+        assign axis_rdma_in_s1[i].tdata         = axisr_vfiu_from_switch[i].tdata;
+        assign axis_rdma_in_s1[i].tkeep         = axisr_vfiu_from_switch[i].tkeep;
+        assign axis_rdma_in_s1[i].tlast         = axisr_vfiu_from_switch[i].tlast;
+{% endif %}
+
+{% if cnfg.en_tcp %}
+        // TCP RX path
+        assign axis_tcp_in_s1[i].tvalid         = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_tcp;
+        assign axis_tcp_in_s1[i].tdata          = axisr_vfiu_from_switch[i].tdata;
+        assign axis_tcp_in_s1[i].tkeep          = axisr_vfiu_from_switch[i].tkeep;
+        assign axis_tcp_in_s1[i].tlast          = axisr_vfiu_from_switch[i].tlast;
+{% endif %}
+
+{% if cnfg.en_bypass %}
+        // Bypass RX path (write data from network)
+        assign axis_bypass_in_s1[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_bypass;
+        assign axis_bypass_in_s1[i].tdata       = axisr_vfiu_from_switch[i].tdata;
+        assign axis_bypass_in_s1[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
+        assign axis_bypass_in_s1[i].tlast       = axisr_vfiu_from_switch[i].tlast;
+{% endif %}
+
+        // P2P RX path (vFPGA-to-vFPGA data)
+        // Goes to gateway_recv for validation, then directly to user logic
+        assign axisr_p2p_vfiu_rx[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_p2p;
+        assign axisr_p2p_vfiu_rx[i].tdata       = axisr_vfiu_from_switch[i].tdata;
+        assign axisr_p2p_vfiu_rx[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
+        assign axisr_p2p_vfiu_rx[i].tlast       = axisr_vfiu_from_switch[i].tlast;
+        assign axisr_p2p_vfiu_rx[i].tid         = axisr_vfiu_from_switch[i].tid;
+        assign axisr_p2p_vfiu_rx[i].tdest       = axisr_vfiu_from_switch[i].tdest;
+
+        // Ready signal: accept if destination is ready based on protocol
+        // Default to P2P ready; override with enabled protocol paths
+        assign axisr_vfiu_from_switch[i].tready = vfiu_rx_is_host_tx ? axis_host_vfiu_rx[i].tready :
+{% if cnfg.en_tcp %}
+                                                   vfiu_rx_is_tcp     ? axis_tcp_in_s1[i].tready :
+{% endif %}
+{% if cnfg.en_bypass %}
+                                                   vfiu_rx_is_bypass  ? axis_bypass_in_s1[i].tready :
+{% endif %}
+                                                   vfiu_rx_is_p2p     ? axisr_p2p_vfiu_rx[i].tready :
+{% if cnfg.en_rdma %}
+                                                                        axis_rdma_in_s1[i].tready;
+{% else %}
+                                                                        1'b1;  // No RDMA, always ready
+{% endif %}
+
+        // ====================================================================
+        // vFIU TX Path: Mux from RDMA/TCP/Bypass/Host arrays -> vFIU sink -> vIO Switch
+        // ====================================================================
+        // Mux RDMA TX (req+rsp), TCP TX, Bypass TX, and Host TX onto vFIU sink.
+        // Priority: RDMA TX REQ > RDMA TX RSP > TCP TX > BYPASS TX > HOST TX
+        // The vIO Switch routes based on tdest (set by gateway_send for host, or route_out).
+        // --------------------------------------------------------------------
+
+        // Determine which source has data (priority encoding)
+        // Priority: RDMA_REQ > RDMA_RSP > TCP > BYPASS > P2P > HOST
+{% if cnfg.en_rdma %}
+        logic vfiu_tx_sel_rdma_req;
+        logic vfiu_tx_sel_rdma_rsp;
+{% endif %}
+{% if cnfg.en_tcp %}
+        logic vfiu_tx_sel_tcp;
+{% endif %}
+{% if cnfg.en_bypass %}
+        logic vfiu_tx_sel_bypass;
+{% endif %}
+        logic vfiu_tx_sel_p2p;
+        logic vfiu_tx_sel_host;
+
+{% if cnfg.en_rdma %}
+        assign vfiu_tx_sel_rdma_req = axis_rdma_out_req_s1[i].tvalid;
+        assign vfiu_tx_sel_rdma_rsp = axis_rdma_out_rsp_s1[i].tvalid & ~vfiu_tx_sel_rdma_req;
+{% endif %}
+{% if cnfg.en_tcp %}
+        assign vfiu_tx_sel_tcp      = axis_tcp_out_s1[i].tvalid
+{% if cnfg.en_rdma %}
+                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
+{% endif %}
+                                      ;
+{% endif %}
+{% if cnfg.en_bypass %}
+        assign vfiu_tx_sel_bypass   = axis_bypass_out_s1[i].tvalid
+{% if cnfg.en_rdma %}
+                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
+{% endif %}
+{% if cnfg.en_tcp %}
+                                      & ~vfiu_tx_sel_tcp
+{% endif %}
+                                      ;
+{% endif %}
+        assign vfiu_tx_sel_p2p      = axisr_p2p_out[i].tvalid
+{% if cnfg.en_rdma %}
+                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
+{% endif %}
+{% if cnfg.en_tcp %}
+                                      & ~vfiu_tx_sel_tcp
+{% endif %}
+{% if cnfg.en_bypass %}
+                                      & ~vfiu_tx_sel_bypass
+{% endif %}
+                                      ;
+        assign vfiu_tx_sel_host     = axisr_host_vfiu_tx[i].tvalid
+{% if cnfg.en_rdma %}
+                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
+{% endif %}
+{% if cnfg.en_tcp %}
+                                      & ~vfiu_tx_sel_tcp
+{% endif %}
+{% if cnfg.en_bypass %}
+                                      & ~vfiu_tx_sel_bypass
+{% endif %}
+                                      & ~vfiu_tx_sel_p2p;
+
+        // Mux data to vFIU TX
+        assign axisr_vfiu_to_switch[i].tvalid =
+{% if cnfg.en_rdma %}
+                                                 vfiu_tx_sel_rdma_req | vfiu_tx_sel_rdma_rsp |
+{% endif %}
+{% if cnfg.en_tcp %}
+                                                 vfiu_tx_sel_tcp |
+{% endif %}
+{% if cnfg.en_bypass %}
+                                                 vfiu_tx_sel_bypass |
+{% endif %}
+                                                 vfiu_tx_sel_p2p | vfiu_tx_sel_host;
+        assign axisr_vfiu_to_switch[i].tdata  =
+{% if cnfg.en_rdma %}
+                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tdata :
+                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tdata :
+{% endif %}
+{% if cnfg.en_tcp %}
+                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tdata :
+{% endif %}
+{% if cnfg.en_bypass %}
+                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tdata :
+{% endif %}
+                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tdata :
+                                                                        axisr_host_vfiu_tx[i].tdata;
+        assign axisr_vfiu_to_switch[i].tkeep  =
+{% if cnfg.en_rdma %}
+                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tkeep :
+                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tkeep :
+{% endif %}
+{% if cnfg.en_tcp %}
+                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tkeep :
+{% endif %}
+{% if cnfg.en_bypass %}
+                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tkeep :
+{% endif %}
+                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tkeep :
+                                                                        axisr_host_vfiu_tx[i].tkeep;
+        assign axisr_vfiu_to_switch[i].tlast  =
+{% if cnfg.en_rdma %}
+                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tlast :
+                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tlast :
+{% endif %}
+{% if cnfg.en_tcp %}
+                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tlast :
+{% endif %}
+{% if cnfg.en_bypass %}
+                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tlast :
+{% endif %}
+                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tlast :
+                                                                        axisr_host_vfiu_tx[i].tlast;
+        assign axisr_vfiu_to_switch[i].tid    = vfiu_tx_sel_host ? axisr_host_vfiu_tx[i].tid :
+                                                 vfiu_tx_sel_p2p  ? axisr_p2p_out[i].tid : '0;
+        // For host TX, use tdest from gateway_send (routes to HOST_RX)
+        // For P2P TX, user specifies target vFPGA in tdest[5:2], we fill sender_id=i
+        // For others use route_out from gateway_send
+        assign axisr_vfiu_to_switch[i].tdest  = vfiu_tx_sel_host ? axisr_host_vfiu_tx[i].tdest :
+                                                 vfiu_tx_sel_p2p  ? {4'b0, i[3:0], axisr_p2p_out[i].tdest[5:2], 2'b0} :
+                                                                    vfiu_route_out[i];
+
+        // Ready signals back to sources
+{% if cnfg.en_rdma %}
+        assign axis_rdma_out_req_s1[i].tready = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_rdma_req;
+        assign axis_rdma_out_rsp_s1[i].tready = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_rdma_rsp;
+{% endif %}
+{% if cnfg.en_tcp %}
+        assign axis_tcp_out_s1[i].tready      = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_tcp;
+{% endif %}
+{% if cnfg.en_bypass %}
+        assign axis_bypass_out_s1[i].tready   = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_bypass;
+{% endif %}
+        assign axisr_p2p_out[i].tready        = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_p2p;
+        assign axisr_host_vfiu_tx[i].tready   = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_host;
+
+        // ====================================================================
+        // Gateway modules for route control and validation
+        // ====================================================================
+        // Note: The gateway_send and gateway_recv modules here are for network
+        // routing (RDMA/TCP/Bypass). The host data path gateways are inside
+        // vfiu_top which handles the host memory path via vIO Switch.
+        //
+        // The host data interfaces (axisr_host_vfiu_tx/axis_host_vfiu_rx) should
+        // connect to user_wrapper which contains vfiu_top with the full gateway
+        // implementation for host memory path.
+
+        // Gateway send for each vFIU (sets route_out based on configuration)
+        // This is for network routing, not host memory path
+        gateway_send #(
+            .N_DESTS(1),
+            .ID(i),
+            .N_REGIONS(N_REGIONS)
+        ) inst_gateway_send (
+            .aclk(aclk),
+            .aresetn(aresetn),
+            .route_ctrl(vfiu_route_ctrl[i]),
+            .route_out(vfiu_route_out[i]),
+            // Host data path - connected to axisr_host_vfiu_tx for vIO Switch routing
+            .s_axis_host(axis_host_out_s1[i]),      // From user/vfiu_top host write data
+            .m_axis_host(axisr_host_vfiu_tx[i])     // To vIO Switch (with tdest)
+        );
+
+        // Gateway recv for each vFIU (validates incoming route from vIO Switch)
+        // vfiu_route_in[i] comes from vIO Switch route_out (extracted from tdest)
+        // Also handles host RX data path with bypass logic
+
+        // Internal AXI4SR interface for host RX with tdest (from vIO Switch demux)
+        AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_to_gateway ();
+
+        // Connect demuxed host RX data to gateway_recv input
+        assign axisr_host_rx_to_gateway.tvalid = axis_host_vfiu_rx[i].tvalid;
+        assign axisr_host_rx_to_gateway.tdata  = axis_host_vfiu_rx[i].tdata;
+        assign axisr_host_rx_to_gateway.tkeep  = axis_host_vfiu_rx[i].tkeep;
+        assign axisr_host_rx_to_gateway.tlast  = axis_host_vfiu_rx[i].tlast;
+        assign axisr_host_rx_to_gateway.tid    = '0;
+        // tdest carries the route_id from HOST_TX
+        assign axisr_host_rx_to_gateway.tdest  = vfiu_route_in[i];
+        assign axis_host_vfiu_rx[i].tready     = axisr_host_rx_to_gateway.tready;
+
+        gateway_recv #(
+            .N_DESTS(1),
+            .ID(i),
+            .N_REGIONS(N_REGIONS)
+        ) inst_gateway_recv (
+            .aclk(aclk),
+            .aresetn(aresetn),
+            .route_ctrl(vfiu_route_ctrl[i]),
+            .route_in(vfiu_route_in[i]),
+            .route_valid(vfiu_route_valid),
+            .route_bypass(vfiu_route_bypass),
+            // Host RX data path - from vIO Switch to user/vfiu_top
+            .s_axis_host(axisr_host_rx_to_gateway),  // From vIO Switch (with route_id)
+            .m_axis_host(axis_host_in_s1[i]),        // To user (stripped tdest)
+            // P2P RX data path - from vIO Switch (another vFPGA) to user
+            .s_axis_p2p(axisr_p2p_vfiu_rx[i]),       // From vIO Switch (with route_id)
+            .m_axis_p2p(axis_p2p_in[i])              // To user (stripped tdest, validated)
+        );
+    end
 
     // Clock crossing (if enabled)
     // ----------------------------------------------------------------------
@@ -651,6 +1397,8 @@ module design_dynamic_top #(
 
     // Arbitration
     // ----------------------------------------------------------------------
+    // Arbitrate METADATA only (data routing via vIO Switch)
+    // ----------------------------------------------------------------------
     metaIntf #(.STYPE(tcp_listen_req_t)) tcp_listen_req_s1[N_REGIONS]();
     metaIntf #(.STYPE(tcp_listen_rsp_t)) tcp_listen_rsp_s1[N_REGIONS]();
     metaIntf #(.STYPE(tcp_open_req_t)) tcp_open_req_s1[N_REGIONS]();
@@ -661,14 +1409,22 @@ module design_dynamic_top #(
     metaIntf #(.STYPE(tcp_rx_meta_t)) tcp_rx_meta_s1 [N_REGIONS]();
     metaIntf #(.STYPE(tcp_tx_meta_t)) tcp_tx_meta_s1 [N_REGIONS]();
     metaIntf #(.STYPE(tcp_tx_stat_t)) tcp_tx_stat_s1 [N_REGIONS]();
+
+    // POS: Per-region TCP data interfaces (routed through vIO Switch)
+    // TCP RX data comes from vIO Switch (vFIU output), TCP TX goes to vIO Switch (vFIU input)
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_in_s1 [N_REGIONS]();
     AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_out_s1 [N_REGIONS]();
 
+    // vIO Switch routing signals from TCP metadata arbiter (full route_id format)
+    // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    logic [13:0] tcp_route_id_rx;
+    logic [13:0] tcp_route_id_tx;
 
-    tcp_arbiter inst_tcp_arbiter (
+    tcp_meta_only_arbiter inst_tcp_meta_arbiter (
         .aclk(aclk),
         .aresetn(aresetn),
 
+        // Network side - metadata only
         .m_tcp_listen_req_net(tcp_listen_req_s0),
         .s_tcp_listen_rsp_net(tcp_listen_rsp_s0),
         .m_tcp_open_req_net(tcp_open_req_s0),
@@ -679,9 +1435,8 @@ module design_dynamic_top #(
         .s_tcp_rx_meta_net(tcp_rx_meta_s0),
         .m_tcp_tx_meta_net(tcp_tx_meta_s0),
         .s_tcp_tx_stat_net(tcp_tx_stat_s0),
-        .s_axis_tcp_rx_net(axis_tcp_in_s0),
-        .m_axis_tcp_tx_net(axis_tcp_out_s0),
 
+        // User side - metadata only (per region)
         .s_tcp_listen_req_user(tcp_listen_req_s1),
         .m_tcp_listen_rsp_user(tcp_listen_rsp_s1),
         .s_tcp_open_req_user(tcp_open_req_s1),
@@ -692,12 +1447,55 @@ module design_dynamic_top #(
         .m_tcp_rx_meta_user(tcp_rx_meta_s1),
         .s_tcp_tx_meta_user(tcp_tx_meta_s1),
         .m_tcp_tx_stat_user(tcp_tx_stat_s1),
-        .m_axis_tcp_rx_user(axis_tcp_in_s1),
-        .s_axis_tcp_tx_user(axis_tcp_out_s1),
-        // POS: Route ID sideband for VIU
-        .tcp_tx_route_id(m_tcp_tx_route_id),
-        .tcp_tx_route_id_valid(m_tcp_tx_route_id_valid)
+
+        // vIO Switch routing (full route_id with sender_id encoded)
+        .route_id_rx(tcp_route_id_rx),
+        .route_id_tx(tcp_route_id_tx)
     );
+
+    // ============================================================================
+    // POS vIO Switch TCP Data Routing
+    // ============================================================================
+    // TCP data flows through vIO Switch just like RDMA:
+    //   TCP RX (network->vFPGA): axis_tcp_in_s0 -> vIO Switch TCP sink -> vFIU[vfid] src -> user
+    //   TCP TX (vFPGA->network): user -> vFIU[i] sink -> vIO Switch TCP src -> axis_tcp_out_s0
+    //
+    // The vIO Switch routes based on tdest. TCP shares vFIU ports with RDMA.
+    // ----------------------------------------------------------------------
+
+    // ============================================================================
+    // TCP RX Path: Network -> vIO Switch TCP sink -> vFIU -> User
+    // ============================================================================
+    // Convert AXI4S (from TCP stack) to AXI4SR (for vIO Switch) for RX
+    // tdest = route_id_rx from metadata arbiter (includes sender_id=PORT_TCP)
+    // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    // For RX from network: sender=PORT_TCP, receiver=vfid (destination vFPGA)
+    assign axisr_tcp_to_switch.tvalid = axis_tcp_in_s0.tvalid;
+    assign axisr_tcp_to_switch.tdata  = axis_tcp_in_s0.tdata;
+    assign axisr_tcp_to_switch.tkeep  = axis_tcp_in_s0.tkeep;
+    assign axisr_tcp_to_switch.tlast  = axis_tcp_in_s0.tlast;
+    assign axisr_tcp_to_switch.tid    = '0;
+    // tdest = full route_id with sender_id=PORT_TCP, receiver_id=vfid
+    assign axisr_tcp_to_switch.tdest  = tcp_route_id_rx;
+    assign axis_tcp_in_s0.tready      = axisr_tcp_to_switch.tready;
+
+    // ============================================================================
+    // TCP TX Path: User -> vFIU -> vIO Switch TCP src -> Network
+    // ============================================================================
+    // Convert AXI4SR (from vIO Switch TCP src) to AXI4S (to TCP stack) for TX
+    assign axis_tcp_out_s0.tvalid       = axisr_tcp_from_switch.tvalid;
+    assign axis_tcp_out_s0.tdata        = axisr_tcp_from_switch.tdata;
+    assign axis_tcp_out_s0.tkeep        = axisr_tcp_from_switch.tkeep;
+    assign axis_tcp_out_s0.tlast        = axisr_tcp_from_switch.tlast;
+    assign axisr_tcp_from_switch.tready = axis_tcp_out_s0.tready;
+
+    // Extract route_id from vIO Switch TCP output for VIU VLAN tagging
+    logic [13:0] tcp_tx_route_out;
+    assign tcp_tx_route_out = axisr_tcp_from_switch.tdest;
+
+    // POS: TCP route_id outputs for VIU
+    assign m_tcp_tx_route_id       = tcp_tx_route_out;
+    assign m_tcp_tx_route_id_valid = axisr_tcp_from_switch.tvalid;
 
     // Clock crossing (if enabled)
     // ----------------------------------------------------------------------
@@ -858,10 +1656,135 @@ module design_dynamic_top #(
 
 {% endif %}
 
+{% if cnfg.en_bypass %}
+    // ================-----------------------------------------------------------------
+    // BYPASS - Pipeline Stages (ccross, slice, decoupler)
+    // ================-----------------------------------------------------------------
+    // Bypass path needs same pipeline stages as RDMA/TCP for proper isolation.
+    // Uses bypass_ccross_ul and bypass_slice_array_ul which bundle control AND data:
+    //   s1 (from arbiter/vIO Switch) -> s2 (ccross) -> s3 (slice) -> ul (decouple) -> user
+    //
+    // Control signals:
+    //   bypass_sq:     TX send queue (user -> network)
+    //   bypass_rq_rd:  RX read request (network -> user)
+    //   bypass_rq_wr:  RX write request (network -> user)
+    //
+    // Data signals:
+    //   axis_bypass_rd_rsp (axis_bypass_out): TX read response data (user -> network)
+    //   axis_bypass_wr (axis_bypass_in):      RX write data (network -> user)
+
+    // Clock crossing stage (s1 -> s2)
+    // ----------------------------------------------------------------------
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_s2 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s2 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s2 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_rd_rsp_s2 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_wr_s2 [N_REGIONS] ();
+
+{% if cnfg.en_uclk %}
+    // Cross to UCLK
+    for(genvar i = 0; i < N_REGIONS; i++) begin
+        bypass_ccross_ul inst_bypass_ccross (
+            .nclk(aclk),
+            .nresetn(aresetn),
+            .aclk(uclk),
+            .aresetn(uresetn),
+
+            // Network clock side (s1)
+            .m_bypass_sq_nclk(bypass_sq_s1[i]),
+            .s_bypass_rd_req_nclk(bypass_rq_rd_s1[i]),
+            .s_bypass_wr_req_nclk(bypass_rq_wr_s1[i]),
+            .m_axis_bypass_rd_rsp_nclk(axis_bypass_out_s1[i]),
+            .s_axis_bypass_wr_nclk(axis_bypass_in_s1[i]),
+
+            // User clock side (s2)
+            .s_bypass_sq_aclk(bypass_sq_s2[i]),
+            .m_bypass_rd_req_aclk(bypass_rq_rd_s2[i]),
+            .m_bypass_wr_req_aclk(bypass_rq_wr_s2[i]),
+            .s_axis_bypass_rd_rsp_aclk(axis_bypass_rd_rsp_s2[i]),
+            .m_axis_bypass_wr_aclk(axis_bypass_wr_s2[i])
+        );
+    end
+
+{% else %}
+    // No crossing
+    for(genvar i = 0; i < N_REGIONS; i++) begin
+        `META_ASSIGN(bypass_sq_s2[i], bypass_sq_s1[i])
+        `META_ASSIGN(bypass_rq_rd_s1[i], bypass_rq_rd_s2[i])
+        `META_ASSIGN(bypass_rq_wr_s1[i], bypass_rq_wr_s2[i])
+        `AXIS_ASSIGN(axis_bypass_rd_rsp_s2[i], axis_bypass_out_s1[i])
+        `AXIS_ASSIGN(axis_bypass_in_s1[i], axis_bypass_wr_s2[i])
+    end
+
+{% endif %}
+
+    // Slice stage (s2 -> s3)
+    // ----------------------------------------------------------------------
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_s3 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_s3 [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_s3 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_rd_rsp_s3 [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_wr_s3 [N_REGIONS] ();
+
+    for(genvar i = 0; i < N_REGIONS; i++) begin
+        bypass_slice_array_ul #(
+            .N_STAGES(N_REG_DYN_NET_S1)
+        ) inst_bypass_slice_array (
+{% if cnfg.en_uclk %}
+            .aclk(uclk),
+            .aresetn(uresetn),
+{% else %}
+            .aclk(aclk),
+            .aresetn(aresetn),
+{% endif %}
+            // Network side (s2)
+            .m_bypass_sq_n(bypass_sq_s2[i]),
+            .s_bypass_rd_req_n(bypass_rq_rd_s2[i]),
+            .s_bypass_wr_req_n(bypass_rq_wr_s2[i]),
+            .m_axis_bypass_rd_rsp_n(axis_bypass_rd_rsp_s2[i]),
+            .s_axis_bypass_wr_n(axis_bypass_wr_s2[i]),
+
+            // User side (s3)
+            .s_bypass_sq_u(bypass_sq_s3[i]),
+            .m_bypass_rd_req_u(bypass_rq_rd_s3[i]),
+            .m_bypass_wr_req_u(bypass_rq_wr_s3[i]),
+            .s_axis_bypass_rd_rsp_u(axis_bypass_rd_rsp_s3[i]),
+            .m_axis_bypass_wr_u(axis_bypass_wr_s3[i])
+        );
+    end
+
+    // Decoupling stage (s3 -> ul)
+    // ----------------------------------------------------------------------
+    metaIntf #(.STYPE(dreq_t)) bypass_sq_ul [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_ul [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_ul [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_rd_rsp_ul [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_wr_ul [N_REGIONS] ();
+
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_sq_ul), .m_meta(bypass_sq_s3));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_rq_rd_s3), .m_meta(bypass_rq_rd_ul));
+    meta_decoupler (.decouple(decouple_uclk), .s_meta(bypass_rq_wr_s3), .m_meta(bypass_rq_wr_ul));
+    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_bypass_rd_rsp_ul), .m_axis(axis_bypass_rd_rsp_s3));
+    axis_decoupler (.decouple(decouple_uclk), .s_axis(axis_bypass_wr_s3), .m_axis(axis_bypass_wr_ul));
+
+    // Bypass data signal aliases for user_wrapper compatibility
+    // axis_bypass_in_ul  = RX write data from network (axis_bypass_wr_ul)
+    // axis_bypass_out_ul = TX read response to network (axis_bypass_rd_rsp_ul)
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_in_ul [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_out_ul [N_REGIONS] ();
+
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_bypass_ul_aliases
+        // RX: Write data from network to user
+        `AXIS_ASSIGN(axis_bypass_wr_ul[i], axis_bypass_in_ul[i])
+        // TX: Read response from user to network
+        `AXIS_ASSIGN(axis_bypass_out_ul[i], axis_bypass_rd_rsp_ul[i])
+    end
+{% endif %}
+
     // ================-----------------------------------------------------------------
 	// Rest of interfaces
 	// ================-----------------------------------------------------------------
-    
+
     // Control lTLB
 	AXI4L axi_ctrl_lTlb [N_REGIONS] ();
 	
@@ -1215,6 +2138,31 @@ module design_dynamic_top #(
         .axis_tcp_src_tready            (axis_tcp_out_ul[{{ i }}].tready),
         .axis_tcp_src_tvalid            (axis_tcp_out_ul[{{ i }}].tvalid),
 {% endif %}
+{% if cnfg.en_bypass %}
+        // BYPASS CONTROL (SQ and RQ commands)
+        .bypass_sq_valid                (bypass_sq_ul[{{ i }}].valid),
+        .bypass_sq_ready                (bypass_sq_ul[{{ i }}].ready),
+        .bypass_sq_data                 (bypass_sq_ul[{{ i }}].data),
+        .bypass_rq_rd_valid             (bypass_rq_rd_ul[{{ i }}].valid),
+        .bypass_rq_rd_ready             (bypass_rq_rd_ul[{{ i }}].ready),
+        .bypass_rq_rd_data              (bypass_rq_rd_ul[{{ i }}].data),
+        .bypass_rq_wr_valid             (bypass_rq_wr_ul[{{ i }}].valid),
+        .bypass_rq_wr_ready             (bypass_rq_wr_ul[{{ i }}].ready),
+        .bypass_rq_wr_data              (bypass_rq_wr_ul[{{ i }}].data),
+
+        // BYPASS STREAMS
+        .axis_bypass_sink_tdata         (axis_bypass_in_ul[{{ i }}].tdata),
+        .axis_bypass_sink_tkeep         (axis_bypass_in_ul[{{ i }}].tkeep),
+        .axis_bypass_sink_tlast         (axis_bypass_in_ul[{{ i }}].tlast),
+        .axis_bypass_sink_tready        (axis_bypass_in_ul[{{ i }}].tready),
+        .axis_bypass_sink_tvalid        (axis_bypass_in_ul[{{ i }}].tvalid),
+        .axis_bypass_src_tdata          (axis_bypass_out_ul[{{ i }}].tdata),
+        .axis_bypass_src_tkeep          (axis_bypass_out_ul[{{ i }}].tkeep),
+        .axis_bypass_src_tlast          (axis_bypass_out_ul[{{ i }}].tlast),
+        .axis_bypass_src_tready         (axis_bypass_out_ul[{{ i }}].tready),
+        .axis_bypass_src_tvalid         (axis_bypass_out_ul[{{ i }}].tvalid),
+{% endif %}
+
         .S_BSCAN_drck(S_BSCAN_drck[{{ i }}]),
         .S_BSCAN_shift(S_BSCAN_shift[{{ i }}]),
         .S_BSCAN_tdi(S_BSCAN_tdi[{{ i }}]),

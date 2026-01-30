@@ -33,45 +33,46 @@ import lynxTypes::*;
 `include "lynx_macros.svh"
 
 /**
- * @brief   RDMA Metadata-Only Arbitration (for vIO Switch routing)
+ * @brief   Bypass Metadata-Only Arbitration (for vIO Switch routing)
  *
  * This module handles ONLY metadata arbitration between user regions.
  * Data routing is handled by vIO Switch instead of internal muxes.
  *
  * Metadata handled:
  *   - SQ (Send Queue) requests: N_REGIONS → 1 network (round-robin mux)
- *   - CQ (Completion Queue) acks: 1 network → N_REGIONS (vfid-based demux)
- *   - RD commands: 1 network → N_REGIONS (vfid-based demux)
- *   - WR commands: 1 network → N_REGIONS (vfid-based demux)
+ *   - RQ RD commands: 1 network → N_REGIONS (vfid-based demux)
+ *   - RQ WR commands: 1 network → N_REGIONS (vfid-based demux)
  *
  * Data NOT handled (routed through vIO Switch instead):
- *   - TX read request data (vFPGA → network)
- *   - TX read response data (vFPGA → network)
- *   - RX write data (network → vFPGA)
+ *   - TX read response data (vFPGA → network): vIO Switch routes from vFIU to bypass port
+ *   - RX write data (network → vFPGA): vIO Switch routes from bypass port to vFIU
  *
  * Outputs route_id_rx and route_id_tx for vIO Switch tdest.
  * Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
- * For RDMA RX: sender_id = PORT_RDMA_RX (N_REGIONS + 2), receiver_id = vfid
+ * For Bypass RX: sender_id = PORT_BYPASS_RX (N_REGIONS + 6), receiver_id = vfid
  */
-module rdma_meta_only_arbiter (
+module bypass_meta_only_arbiter (
     input  wire             aclk,
     input  wire             aresetn,
 
-    // Network side - Metadata only
-    metaIntf.m              m_rdma_sq_net,      // SQ to network
-    metaIntf.s              s_rdma_cq_net,      // CQ from network
-    metaIntf.s              s_rdma_rq_rd_net,   // RD commands from network
-    metaIntf.s              s_rdma_rq_wr_net,   // WR commands from network
+    // ========================================================================
+    // Network side - To/from bypass stack (metadata only)
+    // ========================================================================
+    metaIntf.m              m_bypass_sq_net,      // SQ to bypass stack
+    metaIntf.s              s_bypass_rq_rd_net,   // RD commands from bypass stack
+    metaIntf.s              s_bypass_rq_wr_net,   // WR commands from bypass stack
 
-    // User side - Metadata only (per region)
-    metaIntf.s              s_rdma_sq_user [N_REGIONS],      // SQ from users
-    metaIntf.m              m_rdma_cq_user [N_REGIONS],      // CQ to users
-    metaIntf.m              m_rdma_host_cq_user,             // CQ to host (for completion tracking)
-    metaIntf.m              m_rdma_rq_rd_user [N_REGIONS],   // RD commands to users
-    metaIntf.m              m_rdma_rq_wr_user [N_REGIONS],   // WR commands to users
+    // ========================================================================
+    // User side - To/from vFIU/ccross/slice/user_wrapper (metadata only)
+    // ========================================================================
+    metaIntf.s              s_bypass_sq_user [N_REGIONS],      // SQ from users
+    metaIntf.m              m_bypass_rq_rd_user [N_REGIONS],   // RD commands to users
+    metaIntf.m              m_bypass_rq_wr_user [N_REGIONS],   // WR commands to users
 
-    // vIO Switch routing - full route_id for tdest
+    // ========================================================================
+    // vIO Switch routing signals - full route_id for tdest
     // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    // ========================================================================
     output logic [13:0] route_id_rx,  // Route ID for incoming data (network → vFPGA)
     output logic [13:0] route_id_tx   // Route ID for outgoing data (vFPGA → network)
 );
@@ -80,7 +81,7 @@ module rdma_meta_only_arbiter (
 // Port IDs for route encoding
 // ============================================================================
 // These must match the vIO Switch port assignments
-localparam logic [3:0] PORT_RDMA_RX = N_REGIONS + 2;  // RDMA RX port in vIO Switch
+localparam logic [3:0] PORT_BYPASS_RX = N_REGIONS + 6;  // Bypass RX port in vIO Switch
 
 // Internal vfid signals
 logic [N_REGIONS_BITS-1:0] vfid_rx;
@@ -103,16 +104,16 @@ dreq_t sq_req_src;
 
 logic [N_REGIONS_BITS-1:0] rr_reg;
 
-metaIntf #(.STYPE(dreq_t)) sq_meta_que [N_REGIONS] (.*);
+metaIntf #(.STYPE(dreq_t)) sq_meta_que [N_REGIONS] (aclk, aresetn);
 
 // Input queues for SQ requests
 for(genvar i = 0; i < N_REGIONS; i++) begin : gen_sq_queues
     axis_data_fifo_cnfg_rdma_256 inst_sq_queue (
         .s_axis_aresetn(aresetn),
         .s_axis_aclk(aclk),
-        .s_axis_tvalid(s_rdma_sq_user[i].valid),
-        .s_axis_tready(s_rdma_sq_user[i].ready),
-        .s_axis_tdata(s_rdma_sq_user[i].data),
+        .s_axis_tvalid(s_bypass_sq_user[i].valid),
+        .s_axis_tready(s_bypass_sq_user[i].ready),
+        .s_axis_tdata(s_bypass_sq_user[i].data),
         .m_axis_tvalid(sq_meta_que[i].valid),
         .m_axis_tready(sq_meta_que[i].ready),
         .m_axis_tdata(sq_meta_que[i].data),
@@ -125,9 +126,9 @@ for(genvar i = 0; i < N_REGIONS; i++) begin : gen_sq_queues
 end
 
 // Output to network
-assign m_rdma_sq_net.valid = sq_valid_src;
-assign sq_ready_src = m_rdma_sq_net.ready;
-assign m_rdma_sq_net.data = sq_req_src;
+assign m_bypass_sq_net.valid = sq_valid_src;
+assign sq_ready_src = m_bypass_sq_net.ready;
+assign m_bypass_sq_net.data = sq_req_src;
 
 // Round-robin counter
 always_ff @(posedge aclk) begin
@@ -164,92 +165,16 @@ end
 axis_data_fifo_cnfg_rdma_256 inst_sq_queue (
     .s_axis_aresetn(aresetn),
     .s_axis_aclk(aclk),
-    .s_axis_tvalid(s_rdma_sq_user[0].valid),
-    .s_axis_tready(s_rdma_sq_user[0].ready),
-    .s_axis_tdata(s_rdma_sq_user[0].data),
-    .m_axis_tvalid(m_rdma_sq_net.valid),
-    .m_axis_tready(m_rdma_sq_net.ready),
-    .m_axis_tdata(m_rdma_sq_net.data),
+    .s_axis_tvalid(s_bypass_sq_user[0].valid),
+    .s_axis_tready(s_bypass_sq_user[0].ready),
+    .s_axis_tdata(s_bypass_sq_user[0].data),
+    .m_axis_tvalid(m_bypass_sq_net.valid),
+    .m_axis_tready(m_bypass_sq_net.ready),
+    .m_axis_tdata(m_bypass_sq_net.data),
     .axis_wr_data_count()
 );
 
 assign vfid_tx = '0;
-
-`endif
-
-// ============================================================================
-// RX Path: CQ Distribution (1 network → N_REGIONS)
-// ============================================================================
-// Route CQ (completion/ACK) to correct region based on vfid field
-
-// Forward to host for completion tracking
-assign m_rdma_host_cq_user.valid = s_rdma_cq_net.valid;
-assign m_rdma_host_cq_user.data = s_rdma_cq_net.data;
-
-`ifdef MULT_REGIONS
-
-logic [N_REGIONS-1:0] cq_ready_src;
-logic [N_REGIONS-1:0] cq_valid_src;
-ack_t [N_REGIONS-1:0] cq_req_src;
-
-logic cq_ready_snk;
-logic cq_valid_snk;
-ack_t cq_req_snk;
-
-metaIntf #(.STYPE(ack_t)) cq_meta_que [N_REGIONS] (.*);
-
-// Input from network
-assign cq_valid_snk = s_rdma_cq_net.valid;
-assign s_rdma_cq_net.ready = cq_ready_snk;
-assign cq_req_snk = s_rdma_cq_net.data;
-
-// Extract vfid for routing
-assign vfid_rx = cq_req_snk.vfid;
-
-// Demux to correct region
-always_comb begin
-    cq_valid_src = '0;
-    for (int i = 0; i < N_REGIONS; i++) begin
-        cq_valid_src[i] = (vfid_rx == i) ? cq_valid_snk : 1'b0;
-        cq_req_src[i] = cq_req_snk;
-    end
-    cq_ready_snk = cq_ready_src[vfid_rx];
-end
-
-// Output queues to users
-for (genvar i = 0; i < N_REGIONS; i++) begin : gen_cq_queues
-    assign cq_meta_que[i].valid = cq_valid_src[i];
-    assign cq_ready_src[i] = cq_meta_que[i].ready;
-    assign cq_meta_que[i].data = cq_req_src[i];
-
-    axis_data_fifo_cnfg_rdma_32 inst_cq_queue (
-        .s_axis_aresetn(aresetn),
-        .s_axis_aclk(aclk),
-        .s_axis_tvalid(cq_meta_que[i].valid),
-        .s_axis_tready(cq_meta_que[i].ready),
-        .s_axis_tdata(cq_meta_que[i].data),
-        .m_axis_tvalid(m_rdma_cq_user[i].valid),
-        .m_axis_tready(m_rdma_cq_user[i].ready),
-        .m_axis_tdata(m_rdma_cq_user[i].data),
-        .axis_wr_data_count()
-    );
-end
-
-`else // Single region
-
-axis_data_fifo_cnfg_rdma_32 inst_cq_queue (
-    .s_axis_aresetn(aresetn),
-    .s_axis_aclk(aclk),
-    .s_axis_tvalid(s_rdma_cq_net.valid),
-    .s_axis_tready(s_rdma_cq_net.ready),
-    .s_axis_tdata(s_rdma_cq_net.data),
-    .m_axis_tvalid(m_rdma_cq_user[0].valid),
-    .m_axis_tready(m_rdma_cq_user[0].ready),
-    .m_axis_tdata(m_rdma_cq_user[0].data),
-    .axis_wr_data_count()
-);
-
-assign vfid_rx = '0;
 
 `endif
 
@@ -271,12 +196,12 @@ req_t rd_req_snk;
 logic [N_REGIONS_BITS-1:0] rd_vfid;
 logic rd_host;
 
-metaIntf #(.STYPE(req_t)) rd_meta_que [N_REGIONS] (.*);
+metaIntf #(.STYPE(req_t)) rd_meta_que [N_REGIONS] (aclk, aresetn);
 
 // Input from network
-assign rd_valid_snk = s_rdma_rq_rd_net.valid;
-assign s_rdma_rq_rd_net.ready = rd_ready_snk;
-assign rd_req_snk = s_rdma_rq_rd_net.data;
+assign rd_valid_snk = s_bypass_rq_rd_net.valid;
+assign s_bypass_rq_rd_net.ready = rd_ready_snk;
+assign rd_req_snk = s_bypass_rq_rd_net.data;
 
 // Extract vfid and host flag
 assign rd_vfid = rd_req_snk.vfid;
@@ -302,13 +227,13 @@ for (genvar i = 0; i < N_REGIONS; i++) begin : gen_rd_queues
         .aclk(aclk),
         .aresetn(aresetn),
         .s_meta(rd_meta_que[i]),
-        .m_meta(m_rdma_rq_rd_user[i])
+        .m_meta(m_bypass_rq_rd_user[i])
     );
 end
 
 `else // Single region
 
-`META_ASSIGN(s_rdma_rq_rd_net, m_rdma_rq_rd_user[0])
+`META_ASSIGN(s_bypass_rq_rd_net, m_bypass_rq_rd_user[0])
 
 `endif
 
@@ -316,6 +241,7 @@ end
 // RX Path: WR Command Distribution (1 network → N_REGIONS)
 // ============================================================================
 // Route WR commands to correct region based on vfid field
+// Note: WR data is routed through vIO Switch, not here
 
 `ifdef MULT_REGIONS
 
@@ -329,15 +255,18 @@ req_t wr_req_snk;
 
 logic [N_REGIONS_BITS-1:0] wr_vfid;
 
-metaIntf #(.STYPE(req_t)) wr_meta_que [N_REGIONS] (.*);
+metaIntf #(.STYPE(req_t)) wr_meta_que [N_REGIONS] (aclk, aresetn);
 
 // Input from network
-assign wr_valid_snk = s_rdma_rq_wr_net.valid;
-assign s_rdma_rq_wr_net.ready = wr_ready_snk;
-assign wr_req_snk = s_rdma_rq_wr_net.data;
+assign wr_valid_snk = s_bypass_rq_wr_net.valid;
+assign s_bypass_rq_wr_net.ready = wr_ready_snk;
+assign wr_req_snk = s_bypass_rq_wr_net.data;
 
-// Extract vfid
+// Extract vfid - use for RX routing
 assign wr_vfid = wr_req_snk.vfid;
+
+// Update vfid_rx based on WR command (this determines where RX data goes)
+assign vfid_rx = wr_vfid;
 
 // Demux to correct region
 always_comb begin
@@ -359,13 +288,15 @@ for (genvar i = 0; i < N_REGIONS; i++) begin : gen_wr_queues
         .aclk(aclk),
         .aresetn(aresetn),
         .s_meta(wr_meta_que[i]),
-        .m_meta(m_rdma_rq_wr_user[i])
+        .m_meta(m_bypass_rq_wr_user[i])
     );
 end
 
 `else // Single region
 
-`META_ASSIGN(s_rdma_rq_wr_net, m_rdma_rq_wr_user[0])
+`META_ASSIGN(s_bypass_rq_wr_net, m_bypass_rq_wr_user[0])
+
+assign vfid_rx = '0;
 
 `endif
 
@@ -375,13 +306,11 @@ end
 // Encode full route_id with sender_id for vIO Switch demux at vFIU
 // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
 
-// RX route: sender = PORT_RDMA_RX, receiver = vfid (destination vFPGA)
-// Note: This route_id_rx is for vFIU gateway validation, NOT for vIO Switch routing.
-// The vIO Switch uses tdest that flows with the data stream from VIU (vlan_untagger).
-assign route_id_rx = {4'b0, PORT_RDMA_RX, vfid_rx[3:0], 2'b0};
+// RX route: sender = PORT_BYPASS_RX, receiver = vfid (destination vFPGA)
+assign route_id_rx = {4'b0, PORT_BYPASS_RX, vfid_rx[3:0], 2'b0};
 
-// TX route: sender = vfid (source vFPGA), receiver = PORT_RDMA_TX_REQ/RSP (set by vFPGA)
-// For TX, the vfid_tx indicates which vFPGA is sending, destination is set elsewhere
+// TX route: sender = vfid (source vFPGA), receiver = PORT_BYPASS_TX (set by vFIU mux)
+// For TX, the vfid_tx indicates which vFPGA is sending
 assign route_id_tx = {4'b0, vfid_tx[3:0], 4'b0, 2'b0};
 
 endmodule

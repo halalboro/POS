@@ -32,6 +32,10 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
+// HARDCODED_TEST_MODE: When defined, bypass VLAN tag insertion (pass-through mode)
+// since test packets don't have VLAN tags. Remove for production.
+`define HARDCODED_TEST_MODE
+
 /**
  * @brief   VLAN Tag Insertion Module for VIU TX Path
  *
@@ -186,6 +190,23 @@ module vlan_tagger #(
         end
     end
 
+`ifdef HARDCODED_TEST_MODE
+    // ============================================================================
+    // BYPASS MODE - Pass-through without VLAN tag insertion
+    // ============================================================================
+    // In test mode, packets don't have VLAN tags, so just pass data through
+    assign m_axis_tvalid = s_axis_tvalid;
+    assign m_axis_tdata  = s_axis_tdata;
+    assign m_axis_tkeep  = s_axis_tkeep;
+    assign m_axis_tlast  = s_axis_tlast;
+    assign s_axis_tready = m_axis_tready;
+
+    // Unused signals in bypass mode
+    always_comb begin
+        state_next = ST_FIRST_BEAT;
+    end
+
+`else
     // ============================================================================
     // Combinational Output Logic
     // ============================================================================
@@ -300,5 +321,7 @@ module vlan_tagger #(
             end
         endcase
     end
+
+`endif
 
 endmodule

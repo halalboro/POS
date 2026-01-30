@@ -40,7 +40,8 @@
 	assign m.tlast      = s.tlast;     	            \
 	assign m.tvalid     = s.tvalid;    	            \
 	assign s.tready     = m.tready;		            \
-	assign m.tid  		= s.tid; 	
+	assign m.tid  		= s.tid;                    \
+	assign m.tdest      = s.tdest;
 
 `define AXISR_ASSIGN_CTS(s, m)              \
 	m.tdata      = s.tdata;     	\
@@ -48,7 +49,8 @@
 	m.tlast      = s.tlast;     	\
 	m.tvalid     = s.tvalid;    	\
 	s.tready     = m.tready;		\
-	m.tid  		= s.tid; 
+	m.tid  		= s.tid;            \
+	m.tdest     = s.tdest;
 
 `define AXISR_ASSIGN_FIRST(s, m, l) 	            \
 	assign m.tdata      = s.tdata;     	            \
@@ -56,7 +58,8 @@
 	assign m.tlast      = s.tlast;     	            \
 	assign m.tvalid     = s.tvalid;    	            \
 	assign s.tready     = m.tready;		            \
-	assign m.tid  		= 0;			
+	assign m.tid  		= 0;                        \
+	assign m.tdest      = 0;			
 
 `define AXIS_TIE_OFF_M(m)				            \
 	assign m.tvalid		= 1'b0;			            \
@@ -351,6 +354,7 @@
 	assign ``m``.tkeep    = ``s``_tkeep;            \
 	assign ``m``.tlast    = ``s``_tlast;            \
     assign ``m``.tid      = ``s``_tid;              \
+    assign ``m``.tdest    = ``s``_tdest;            \
 	assign ``m``.tvalid   = ``s``_tvalid;           \
 	assign ``s``_tready   = ``m``.tready;
 
@@ -359,6 +363,7 @@
 	assign ``m``_tkeep    = ``s``.tkeep;            \
 	assign ``m``_tlast    = ``s``.tlast;            \
     assign ``m``_tid      = ``s``.tid;              \
+    assign ``m``_tdest    = ``s``.tdest;            \
 	assign ``m``_tvalid   = ``s``.tvalid;           \
 	assign ``s``.tready   = ``m``_tready;
 

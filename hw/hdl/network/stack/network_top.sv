@@ -183,6 +183,10 @@ network_module #(
 AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_n_clk_rx_data (.aclk(n_clk), .aresetn(n_resetn));
 AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_n_clk_tx_data (.aclk(n_clk), .aresetn(n_resetn));
 
+// VIU interface signals - declared before use in clock crossing
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_rx_data (.aclk(n_clk), .aresetn(n_resetn));  // From clock crossing (VLAN tagged)
+AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_tx_data (.aclk(n_clk), .aresetn(n_resetn));  // To clock crossing (VLAN tagged)
+
 network_ccross_early #(
     .ENABLED(CROSS_EARLY),
     .N_STGS(N_REG_NET_S1)
@@ -203,8 +207,6 @@ network_ccross_early #(
  * TX path: Network Stack -> VIU (insert VLAN tag) -> CMAC
  * RX path: CMAC -> VIU (extract VLAN tag, validate) -> Network Stack
  */
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_rx_data (.aclk(n_clk), .aresetn(n_resetn));  // From clock crossing (VLAN tagged)
-AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_viu_tx_data (.aclk(n_clk), .aresetn(n_resetn));  // To clock crossing (VLAN tagged)
 
 // TX path route_id selection:
 // - When RDMA generates TX packets, use the route_id from RDMA connection table
@@ -312,6 +314,10 @@ viu_top #(
 
 // tid is not used for RX path (set to 0)
 assign axisr_n_clk_rx_data.tid = '0;
+
+// Assign viu_rx_tdest output - route_id extracted from VLAN tag for vIO Switch routing
+// This is the synchronized route_id that travels with packet data through the network stack
+assign viu_rx_tdest = axisr_n_clk_rx_data.tdest;
 
 /**
  * Network stack
