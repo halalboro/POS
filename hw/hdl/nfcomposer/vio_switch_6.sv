@@ -37,9 +37,6 @@ module vio_switch_6 #(
     input  logic                             aclk,
     input  logic                             aresetn,
 
-    input logic [N_REGIONS-1:0][13:0]        route_in,
-    output logic [N_REGIONS-1:0][13:0]       route_out,
-
     // Host DMA: 2 ports (TX and RX, shared via tdest routing)
     AXI4SR.s                                 data_host_tx_sink,
     AXI4SR.m                                 data_host_tx_src,
@@ -168,6 +165,7 @@ logic [N_ID-1:0][AXI_DATA_BITS-1:0]     data_vfiu_sink_tdata;
 logic [N_ID-1:0][AXI_DATA_BITS/8-1:0]   data_vfiu_sink_tkeep;
 logic [N_ID-1:0]                        data_vfiu_sink_tlast;
 logic [N_ID-1:0][PID_BITS-1:0]          data_vfiu_sink_tid;
+logic [N_ID-1:0][13:0]                  data_vfiu_sink_tdest;
 
 logic [N_ID-1:0]                        data_vfiu_src_tvalid;
 logic [N_ID-1:0]                        data_vfiu_src_tready;
@@ -182,6 +180,7 @@ for(genvar i = 0; i < N_ID; i++) begin
     assign data_vfiu_sink_tkeep[i] = data_vfiu_sink[i].tkeep;
     assign data_vfiu_sink_tlast[i] = data_vfiu_sink[i].tlast;
     assign data_vfiu_sink_tid[i] = data_vfiu_sink[i].tid;
+    assign data_vfiu_sink_tdest[i] = data_vfiu_sink[i].tdest;
     assign data_vfiu_sink[i].tready = data_vfiu_sink_tready[i];
 end
 
@@ -191,11 +190,8 @@ for(genvar i = 0; i < N_ID; i++) begin
     assign data_vfiu_src[i].tkeep = data_vfiu_src_tkeep[i];
     assign data_vfiu_src[i].tlast = data_vfiu_src_tlast[i];
     assign data_vfiu_src[i].tid = data_vfiu_src_tid[i];
+    assign data_vfiu_src[i].tdest = axis_switch_m_tdest_vfiu[i];
     assign data_vfiu_src_tready[i] = data_vfiu_src[i].tready;
-end
-
-for(genvar i = 0; i < N_ID; i++) begin
-    assign route_out[i] = axis_switch_m_tdest_vfiu[i];
 end
 
 // RDMA RX signals (Stack → vFPGA)
@@ -536,7 +532,7 @@ vio_switch_ip_15 inst_vio_switch_ip_0 (
         data_rdma_rx_sink_tdest,
         data_host_rx_sink_tdest,
         data_host_tx_sink_tdest,
-        route_in[5], route_in[4], route_in[3], route_in[2], route_in[1], route_in[0]
+        data_vfiu_sink_tdest[5], data_vfiu_sink_tdest[4], data_vfiu_sink_tdest[3], data_vfiu_sink_tdest[2], data_vfiu_sink_tdest[1], data_vfiu_sink_tdest[0]
     }),
     .s_axis_tready({
         data_bypass_tx_rsp_sink_tready,

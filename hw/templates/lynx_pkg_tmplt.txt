@@ -297,6 +297,10 @@ package lynxTypes;
     parameter integer RDMA_MEM_SHIFT = 27;
     parameter integer RDMA_BYPASS_MODE = 0; // 0=Full RoCE, 1=Raw Ethernet passthrough
 
+    // Network Bypass (Raw Ethernet)
+    parameter integer BYPASS_N_RD_OUTSTANDING = 16;
+    parameter integer BYPASS_N_WR_OUTSTANDING = 32;
+
     // Network TCP/IP
     parameter integer N_TCP_CHANNELS = 2;
     parameter integer TCP_PORT_OFFS = 49152;

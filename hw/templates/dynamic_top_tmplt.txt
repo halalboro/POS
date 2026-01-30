@@ -224,8 +224,8 @@ module design_dynamic_top #(
     // mux_host_rd_user is consumed by dma_rd_route_sync (see vIO Switch section)
     // mux_host_wr_user is tied off - write metadata is handled separately
     assign mux_host_wr_user.ready = 1'b1;
-    
-    // Credits 
+
+    // Credits
     // ----------------------------------------------------------------------
     AXI4S axis_host_in_s2 [N_REGIONS] ();
     AXI4S axis_host_out_s2 [N_REGIONS] ();
@@ -281,7 +281,7 @@ module design_dynamic_top #(
 {% endif %}
     end
 
-    // Decoupling 
+    // Decoupling
     // ----------------------------------------------------------------------
     AXI4S axis_host_in_ul [N_REGIONS] ();
     AXI4S axis_host_out_ul [N_REGIONS] ();
@@ -653,7 +653,9 @@ module design_dynamic_top #(
     logic [N_REGIONS-1:0][13:0] vfiu_route_ctrl;
     logic [N_REGIONS-1:0][13:0] vfiu_route_in;
     logic [N_REGIONS-1:0][13:0] vfiu_route_out;
-    logic [N_REGIONS-1:0]       vfiu_route_valid;  // Incoming route validation result
+    logic [N_REGIONS-1:0]       vfiu_route_valid;       // Incoming route validation result (gateway_recv)
+    logic [N_REGIONS-1:0]       vfiu_route_bypass;      // Trusted path bypass indicator (gateway_recv)
+    logic [N_REGIONS-1:0]       vfiu_send_route_valid;  // Outgoing route validation result (gateway_send)
 
     // Route extracted from RDMA TX path (vIO Switch output) for VIU VLAN tagging
     logic [13:0] rdma_tx_route_out;
@@ -737,17 +739,14 @@ module design_dynamic_top #(
     AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_to_switch ();
     AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_from_switch ();
 
-    // Per-vFIU host data interfaces (connect to vfiu_top host vIO Switch ports)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_vfiu_tx [N_REGIONS] ();  // vFIU → vIO Switch
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_host_vfiu_rx [N_REGIONS] ();    // vIO Switch → vFIU
-
     // Per-vFIU P2P (vFPGA-to-vFPGA) data interfaces
-    // These go directly to user logic (like host) but are validated by gateway_recv
-    // RX: validated by gateway_recv, stripped of tdest before user
-    // TX: user specifies target vFPGA in tdest[5:2], sender_id auto-filled
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_vfiu_rx [N_REGIONS] ();   // vIO Switch → gateway_recv
-    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_p2p_in [N_REGIONS] ();          // To user logic (stripped tdest)
-    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_out [N_REGIONS] ();       // From user (with target vFPGA in tdest)
+    // P2P path uses AXI4SR with TID (like microShell) - no decoupler/ccross in this path
+    // RX: validated by gateway_recv in vfiu_top, TID carries sender vFPGA ID
+    // TX: user sends with TID, gateway_send in vfiu_top validates and builds route_id
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_in [N_REGIONS] ();        // To user logic (tid = sender vFPGA)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_out [N_REGIONS] ();       // From user (with tid)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_in_ul [N_REGIONS] ();     // User level RX (direct, no pipeline)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_p2p_out_ul [N_REGIONS] ();    // User level TX (direct, no pipeline)
 
     // HOST_TX: DMA read response → vIO Switch
     // Use dma_rd_route_sync to synchronize mux metadata (vfid) with data transfers.
@@ -811,18 +810,44 @@ module design_dynamic_top #(
     AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_bypass_tx_rsp_from_switch ();
 
 {% if cnfg.en_bypass %}
-    // Bypass enabled - connect to bypass_stack via axis_bypass_in_s0/axis_bypass_out_s0
-    // Note: Bypass RX/TX data flows through vFIU demux/mux, not directly to these ports
-    // These ports are for bypass_stack internal use - currently tied off as data
-    // flows through vFIU using axis_bypass_in_s1/axis_bypass_out_s1 arrays
+    // ============================================================================
+    // Bypass RX Path: Network -> vIO Switch -> vFIU -> User
+    // ============================================================================
+    // Convert AXI4S (from bypass_stack via axis_bypass_in_s0) to AXI4SR (for vIO Switch)
+    // tdest = bypass_route_id_rx from metadata arbiter (includes sender_id=PORT_BYPASS_RX)
+    // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    // For RX from network: sender=PORT_BYPASS_RX, receiver=vfid (destination vFPGA)
+    assign axisr_bypass_rx_to_switch.tvalid = axis_bypass_in_s0.tvalid;
+    assign axisr_bypass_rx_to_switch.tdata  = axis_bypass_in_s0.tdata;
+    assign axisr_bypass_rx_to_switch.tkeep  = axis_bypass_in_s0.tkeep;
+    assign axisr_bypass_rx_to_switch.tlast  = axis_bypass_in_s0.tlast;
+    assign axisr_bypass_rx_to_switch.tid    = '0;
+    // tdest = full route_id with sender_id=PORT_BYPASS_RX, receiver_id=vfid
+    assign axisr_bypass_rx_to_switch.tdest  = bypass_route_id_rx;
+    assign axis_bypass_in_s0.tready         = axisr_bypass_rx_to_switch.tready;
+
+    // ============================================================================
+    // Bypass TX Path: User -> vFIU -> vIO Switch -> Network
+    // ============================================================================
+    // Convert AXI4SR (from vIO Switch bypass TX src) to AXI4S (to bypass_stack via axis_bypass_out_s0)
+    // Bypass TX uses the REQ port (like RDMA, TX RSP is unused for bypass)
+    assign axis_bypass_out_s0.tvalid           = axisr_bypass_tx_req_from_switch.tvalid;
+    assign axis_bypass_out_s0.tdata            = axisr_bypass_tx_req_from_switch.tdata;
+    assign axis_bypass_out_s0.tkeep            = axisr_bypass_tx_req_from_switch.tkeep;
+    assign axis_bypass_out_s0.tlast            = axisr_bypass_tx_req_from_switch.tlast;
+    assign axisr_bypass_tx_req_from_switch.tready = axis_bypass_out_s0.tready;
+
+    // Bypass TX REQ to switch: tie off (TX data comes from vFIU, not directly here)
+    // The vFIU TX path routes through axisr_vfiu_to_switch, which goes to appropriate
+    // destination based on tdest. For bypass TX, vFIU sets tdest to route to bypass port.
     assign axisr_bypass_tx_req_to_switch.tvalid = 1'b0;
     assign axisr_bypass_tx_req_to_switch.tdata  = '0;
     assign axisr_bypass_tx_req_to_switch.tkeep  = '0;
     assign axisr_bypass_tx_req_to_switch.tlast  = 1'b0;
     assign axisr_bypass_tx_req_to_switch.tid    = '0;
     assign axisr_bypass_tx_req_to_switch.tdest  = '0;
-    assign axisr_bypass_tx_req_from_switch.tready = 1'b1;
 
+    // Bypass TX RSP: unused for bypass (bypass doesn't have separate REQ/RSP like RDMA)
     assign axisr_bypass_tx_rsp_to_switch.tvalid = 1'b0;
     assign axisr_bypass_tx_rsp_to_switch.tdata  = '0;
     assign axisr_bypass_tx_rsp_to_switch.tkeep  = '0;
@@ -831,14 +856,8 @@ module design_dynamic_top #(
     assign axisr_bypass_tx_rsp_to_switch.tdest  = '0;
     assign axisr_bypass_tx_rsp_from_switch.tready = 1'b1;
 
+    // Bypass RX from switch: unused (RX data goes to vFIU via axisr_vfiu_from_switch)
     assign axisr_bypass_rx_from_switch.tready = 1'b1;
-
-    assign axisr_bypass_rx_to_switch.tvalid = 1'b0;
-    assign axisr_bypass_rx_to_switch.tdata  = '0;
-    assign axisr_bypass_rx_to_switch.tkeep  = '0;
-    assign axisr_bypass_rx_to_switch.tlast  = 1'b0;
-    assign axisr_bypass_rx_to_switch.tid    = '0;
-    assign axisr_bypass_rx_to_switch.tdest  = '0;
 {% else %}
     // Bypass disabled - tie off all bypass vIO Switch interfaces
     assign axisr_bypass_tx_req_to_switch.tvalid = 1'b0;
@@ -907,330 +926,185 @@ module design_dynamic_top #(
         .data_bypass_tx_rsp_src(axisr_bypass_tx_rsp_from_switch)
     );
 
-    // Connect vFIU to vIO Switch and user logic (per region)
-    // vFIU handles BOTH RDMA and TCP data flows:
-    //   RX: vIO Switch routes RDMA_RX or TCP to vFIU src -> demux to RDMA or TCP arrays
-    //   TX: Mux from RDMA or TCP arrays -> vFIU sink -> vIO Switch routes to destination
-    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_vfiu_connections
+    // ========================================================================================
+    // vFIU Instantiation (per region)
+    // ========================================================================================
+    // Each vFPGA region has its own vFIU (vFPGA Isolation Unit) that handles:
+    //   - RX Demux: Routes incoming vIO Switch data to correct protocol path
+    //   - TX Mux: Combines 5 TX paths into single stream for vIO Switch
+    //   - gateway_send: Attaches route_id to all 5 TX paths
+    //   - gateway_recv: Validates incoming routes on all 5 RX paths
+    //   - gate_mem: Validates memory requests against configured endpoints
+    //
+    // vfiu_top has 2 AXI4SR ports to vIO Switch (matching vio_switch_N.sv):
+    //   - s_axis_switch: RX from vIO Switch (data_vfiu_src[i])
+    //   - m_axis_switch: TX to vIO Switch (data_vfiu_sink[i])
+    // ========================================================================================
 
-        // ====================================================================
-        // vFIU RX Path: vIO Switch -> vFIU src -> Demux to RDMA/TCP arrays
-        // ====================================================================
-        // The vIO Switch multiplexes RDMA RX and TCP RX onto vFIU src.
-        // We demux based on the sender_id in route_in (from vIO Switch route_out).
-        // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
-        //
-        // Sender IDs (matching vIO Switch port assignments):
-        //   PORT_RDMA_RX = N_REGIONS + 2 (e.g., 4 for N_REGIONS=2)
-        //   PORT_TCP     = N_REGIONS + 5 (e.g., 7 for N_REGIONS=2)
-        //
-        // The sender_id is set by the meta_only_arbiters when encoding route_id_rx.
-        // --------------------------------------------------------------------
+    // ----------------------------------------------------------------------------------------
+    // Memory Endpoint Control (placeholder - will be configured by host)
+    // ----------------------------------------------------------------------------------------
+    logic [N_REGIONS-1:0][(99*4)-1:0] vfiu_mem_ctrl;  // 4 endpoints per vFIU
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_mem_ctrl_init
+        assign vfiu_mem_ctrl[i] = '0;  // Default: no memory restrictions
+    end
 
-        // Port ID constants (must match vIO Switch and meta_only_arbiters)
-        localparam logic [3:0] PORT_HOST_TX   = N_REGIONS + 0;
-        localparam logic [3:0] PORT_HOST_RX   = N_REGIONS + 1;
-        localparam logic [3:0] PORT_RDMA_RX   = N_REGIONS + 2;
-        localparam logic [3:0] PORT_TCP       = N_REGIONS + 5;
-        localparam logic [3:0] PORT_BYPASS_RX = N_REGIONS + 6;
+    // Per-vFIU memory request interfaces
+    // Input: from bpss_rd/wr_sq (user bypass requests after ccross/slice/decoupler)
+    // Output: validated requests to mmu_top
+    metaIntf #(.STYPE(req_t)) vfiu_rd_req [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) vfiu_wr_req [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) vfiu_rd_req_out [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) vfiu_wr_req_out [N_REGIONS] ();
 
-        // Extract sender_id from route (bits [9:6])
-        logic [3:0] vfiu_rx_sender_id;
-        assign vfiu_rx_sender_id = vfiu_route_in[i][9:6];
+    // Connect user bypass requests to gate_mem input (validated by vfiu_top)
+    // Flow: user → ccross → slice → decoupler → bpss_rd/wr_sq → gate_mem → bpss_rd/wr_sq_valid → mmu_top
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_vfiu_mem_req
+        // Connect bpss requests to gate_mem input
+        assign vfiu_rd_req[i].valid = bpss_rd_sq[i].valid;
+        assign vfiu_rd_req[i].data  = bpss_rd_sq[i].data;
+        assign bpss_rd_sq[i].ready  = vfiu_rd_req[i].ready;
 
-        // Determine protocol based on sender_id
-        logic vfiu_rx_is_host_tx;
-{% if cnfg.en_tcp %}
-        logic vfiu_rx_is_tcp;
+        assign vfiu_wr_req[i].valid = bpss_wr_sq[i].valid;
+        assign vfiu_wr_req[i].data  = bpss_wr_sq[i].data;
+        assign bpss_wr_sq[i].ready  = vfiu_wr_req[i].ready;
+
+        // Connect gate_mem output to validated request interfaces (go to mmu_top)
+        assign bpss_rd_sq_valid[i].valid = vfiu_rd_req_out[i].valid;
+        assign bpss_rd_sq_valid[i].data  = vfiu_rd_req_out[i].data;
+        assign vfiu_rd_req_out[i].ready  = bpss_rd_sq_valid[i].ready;
+
+        assign bpss_wr_sq_valid[i].valid = vfiu_wr_req_out[i].valid;
+        assign bpss_wr_sq_valid[i].data  = vfiu_wr_req_out[i].data;
+        assign vfiu_wr_req_out[i].ready  = bpss_wr_sq_valid[i].ready;
+    end
+
+    // ----------------------------------------------------------------------------------------
+    // RDMA TX tie-offs when disabled (REQ and RSP kept separate to vfiu_top)
+    // ----------------------------------------------------------------------------------------
+{% if not cnfg.en_rdma %}
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tie_off_rdma_req [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tie_off_rdma_rsp [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_rdma_tieoff_rx [N_REGIONS] ();
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_rdma_tieoff
+        assign axis_tie_off_rdma_req[i].tvalid = 1'b0;
+        assign axis_tie_off_rdma_req[i].tdata  = '0;
+        assign axis_tie_off_rdma_req[i].tkeep  = '0;
+        assign axis_tie_off_rdma_req[i].tlast  = 1'b0;
+        assign axis_tie_off_rdma_rsp[i].tvalid = 1'b0;
+        assign axis_tie_off_rdma_rsp[i].tdata  = '0;
+        assign axis_tie_off_rdma_rsp[i].tkeep  = '0;
+        assign axis_tie_off_rdma_rsp[i].tlast  = 1'b0;
+        assign axis_rdma_tieoff_rx[i].tready = 1'b1;
+    end
 {% endif %}
-{% if cnfg.en_bypass %}
-        logic vfiu_rx_is_bypass;
+
+    // ----------------------------------------------------------------------------------------
+    // Protocol tie-offs when disabled
+    // ----------------------------------------------------------------------------------------
+{% if not cnfg.en_tcp %}
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tie_off_tcp [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tcp_tieoff_rx [N_REGIONS] ();
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_tcp_tieoff
+        assign axis_tie_off_tcp[i].tvalid = 1'b0;
+        assign axis_tie_off_tcp[i].tdata  = '0;
+        assign axis_tie_off_tcp[i].tkeep  = '0;
+        assign axis_tie_off_tcp[i].tlast  = 1'b0;
+        assign axis_tcp_tieoff_rx[i].tready = 1'b1;
+    end
 {% endif %}
+
+{% if not cnfg.en_bypass %}
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_tie_off_bypass [N_REGIONS] ();
+    AXI4S #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_bypass_tieoff_rx [N_REGIONS] ();
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_bypass_tieoff
+        assign axis_tie_off_bypass[i].tvalid = 1'b0;
+        assign axis_tie_off_bypass[i].tdata  = '0;
+        assign axis_tie_off_bypass[i].tkeep  = '0;
+        assign axis_tie_off_bypass[i].tlast  = 1'b0;
+        assign axis_bypass_tieoff_rx[i].tready = 1'b1;
+    end
+{% endif %}
+
+    // ----------------------------------------------------------------------------------------
+    // vfiu_top Instantiation (per region)
+    // ----------------------------------------------------------------------------------------
+    // vfiu_top now handles demux/mux internally - clean 2-port interface to vIO Switch
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_vfiu_top
+
+        vfiu_top #(
+            .N_REGIONS(N_REGIONS),
+            .N_ENDPOINTS(4),
+            .VFPGA_ID(i)
+        ) inst_vfiu_top (
+            .aclk(aclk),
+            .aresetn(aresetn),
+
+            // vIO Switch interface (2 unidirectional ports)
+            .s_axis_switch(axisr_vfiu_from_switch[i]),  // RX: vIO Switch src → vFIU
+            .m_axis_switch(axisr_vfiu_to_switch[i]),    // TX: vFIU → vIO Switch sink
+
+            // Memory endpoint control
+            .mem_ctrl(vfiu_mem_ctrl[i]),
+
+            // Memory request interfaces (gate_mem)
+            .s_rd_req(vfiu_rd_req[i]),
+            .s_wr_req(vfiu_wr_req[i]),
+            .m_rd_req(vfiu_rd_req_out[i]),
+            .m_wr_req(vfiu_wr_req_out[i]),
+
+            // Routing control
+            .route_ctrl(vfiu_route_ctrl[i]),
+
+            // HOST Path (AXI4S - no tid needed, PID comes from local_credits)
+            .s_axis_host_tx(axis_host_out_s1[i]),
+            .m_axis_host_rx(axis_host_in_s1[i]),
+
+            // RDMA Path (AXI4S) - REQ and RSP kept separate to vfiu_top
 {% if cnfg.en_rdma %}
-        logic vfiu_rx_is_rdma;
-{% endif %}
-        logic vfiu_rx_is_p2p;      // vFPGA-to-vFPGA traffic
-        assign vfiu_rx_is_host_tx = (vfiu_rx_sender_id == PORT_HOST_TX);
-{% if cnfg.en_tcp %}
-        assign vfiu_rx_is_tcp     = (vfiu_rx_sender_id == PORT_TCP);
-{% endif %}
-{% if cnfg.en_bypass %}
-        assign vfiu_rx_is_bypass  = (vfiu_rx_sender_id == PORT_BYPASS_RX);
-{% endif %}
-        // P2P: sender_id < N_REGIONS means it's from another vFPGA
-        assign vfiu_rx_is_p2p     = (vfiu_rx_sender_id < N_REGIONS) & (vfiu_rx_sender_id != i);
-{% if cnfg.en_rdma %}
-        // RDMA: only if not any of the above (PORT_RDMA_RX or other RDMA ports)
-        assign vfiu_rx_is_rdma    = ~vfiu_rx_is_host_tx
-{% if cnfg.en_tcp %}
-                                    & ~vfiu_rx_is_tcp
-{% endif %}
-{% if cnfg.en_bypass %}
-                                    & ~vfiu_rx_is_bypass
-{% endif %}
-                                    & ~vfiu_rx_is_p2p;
-{% endif %}
-
-        // Demux vFIU RX to Host, RDMA, TCP, or Bypass based on sender
-        // Host RX path (DMA read response data → vFPGA)
-        // This goes to axisr_host_vfiu_rx which connects to gateway_recv in vfiu_top
-        assign axis_host_vfiu_rx[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_host_tx;
-        assign axis_host_vfiu_rx[i].tdata       = axisr_vfiu_from_switch[i].tdata;
-        assign axis_host_vfiu_rx[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
-        assign axis_host_vfiu_rx[i].tlast       = axisr_vfiu_from_switch[i].tlast;
-
-{% if cnfg.en_rdma %}
-        // RDMA RX path
-        assign axis_rdma_in_s1[i].tvalid        = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_rdma;
-        assign axis_rdma_in_s1[i].tdata         = axisr_vfiu_from_switch[i].tdata;
-        assign axis_rdma_in_s1[i].tkeep         = axisr_vfiu_from_switch[i].tkeep;
-        assign axis_rdma_in_s1[i].tlast         = axisr_vfiu_from_switch[i].tlast;
-{% endif %}
-
-{% if cnfg.en_tcp %}
-        // TCP RX path
-        assign axis_tcp_in_s1[i].tvalid         = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_tcp;
-        assign axis_tcp_in_s1[i].tdata          = axisr_vfiu_from_switch[i].tdata;
-        assign axis_tcp_in_s1[i].tkeep          = axisr_vfiu_from_switch[i].tkeep;
-        assign axis_tcp_in_s1[i].tlast          = axisr_vfiu_from_switch[i].tlast;
-{% endif %}
-
-{% if cnfg.en_bypass %}
-        // Bypass RX path (write data from network)
-        assign axis_bypass_in_s1[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_bypass;
-        assign axis_bypass_in_s1[i].tdata       = axisr_vfiu_from_switch[i].tdata;
-        assign axis_bypass_in_s1[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
-        assign axis_bypass_in_s1[i].tlast       = axisr_vfiu_from_switch[i].tlast;
-{% endif %}
-
-        // P2P RX path (vFPGA-to-vFPGA data)
-        // Goes to gateway_recv for validation, then directly to user logic
-        assign axisr_p2p_vfiu_rx[i].tvalid      = axisr_vfiu_from_switch[i].tvalid & vfiu_rx_is_p2p;
-        assign axisr_p2p_vfiu_rx[i].tdata       = axisr_vfiu_from_switch[i].tdata;
-        assign axisr_p2p_vfiu_rx[i].tkeep       = axisr_vfiu_from_switch[i].tkeep;
-        assign axisr_p2p_vfiu_rx[i].tlast       = axisr_vfiu_from_switch[i].tlast;
-        assign axisr_p2p_vfiu_rx[i].tid         = axisr_vfiu_from_switch[i].tid;
-        assign axisr_p2p_vfiu_rx[i].tdest       = axisr_vfiu_from_switch[i].tdest;
-
-        // Ready signal: accept if destination is ready based on protocol
-        // Default to P2P ready; override with enabled protocol paths
-        assign axisr_vfiu_from_switch[i].tready = vfiu_rx_is_host_tx ? axis_host_vfiu_rx[i].tready :
-{% if cnfg.en_tcp %}
-                                                   vfiu_rx_is_tcp     ? axis_tcp_in_s1[i].tready :
-{% endif %}
-{% if cnfg.en_bypass %}
-                                                   vfiu_rx_is_bypass  ? axis_bypass_in_s1[i].tready :
-{% endif %}
-                                                   vfiu_rx_is_p2p     ? axisr_p2p_vfiu_rx[i].tready :
-{% if cnfg.en_rdma %}
-                                                                        axis_rdma_in_s1[i].tready;
+            .s_axis_rdma_tx_req(axis_rdma_out_req_s1[i]),
+            .s_axis_rdma_tx_rsp(axis_rdma_out_rsp_s1[i]),
+            .m_axis_rdma_rx(axis_rdma_in_s1[i]),
 {% else %}
-                                                                        1'b1;  // No RDMA, always ready
+            .s_axis_rdma_tx_req(axis_tie_off_rdma_req[i]),
+            .s_axis_rdma_tx_rsp(axis_tie_off_rdma_rsp[i]),
+            .m_axis_rdma_rx(axis_rdma_tieoff_rx[i]),
 {% endif %}
 
-        // ====================================================================
-        // vFIU TX Path: Mux from RDMA/TCP/Bypass/Host arrays -> vFIU sink -> vIO Switch
-        // ====================================================================
-        // Mux RDMA TX (req+rsp), TCP TX, Bypass TX, and Host TX onto vFIU sink.
-        // Priority: RDMA TX REQ > RDMA TX RSP > TCP TX > BYPASS TX > HOST TX
-        // The vIO Switch routes based on tdest (set by gateway_send for host, or route_out).
-        // --------------------------------------------------------------------
+            // TCP Path (AXI4S)
+{% if cnfg.en_tcp %}
+            .s_axis_tcp_tx(axis_tcp_out_s1[i]),
+            .m_axis_tcp_rx(axis_tcp_in_s1[i]),
+{% else %}
+            .s_axis_tcp_tx(axis_tie_off_tcp[i]),
+            .m_axis_tcp_rx(axis_tcp_tieoff_rx[i]),
+{% endif %}
 
-        // Determine which source has data (priority encoding)
-        // Priority: RDMA_REQ > RDMA_RSP > TCP > BYPASS > P2P > HOST
-{% if cnfg.en_rdma %}
-        logic vfiu_tx_sel_rdma_req;
-        logic vfiu_tx_sel_rdma_rsp;
-{% endif %}
-{% if cnfg.en_tcp %}
-        logic vfiu_tx_sel_tcp;
-{% endif %}
+            // BYPASS Path (AXI4S)
 {% if cnfg.en_bypass %}
-        logic vfiu_tx_sel_bypass;
+            .s_axis_bypass_tx(axis_bypass_out_s1[i]),
+            .m_axis_bypass_rx(axis_bypass_in_s1[i]),
+{% else %}
+            .s_axis_bypass_tx(axis_tie_off_bypass[i]),
+            .m_axis_bypass_rx(axis_bypass_tieoff_rx[i]),
 {% endif %}
-        logic vfiu_tx_sel_p2p;
-        logic vfiu_tx_sel_host;
 
-{% if cnfg.en_rdma %}
-        assign vfiu_tx_sel_rdma_req = axis_rdma_out_req_s1[i].tvalid;
-        assign vfiu_tx_sel_rdma_rsp = axis_rdma_out_rsp_s1[i].tvalid & ~vfiu_tx_sel_rdma_req;
-{% endif %}
-{% if cnfg.en_tcp %}
-        assign vfiu_tx_sel_tcp      = axis_tcp_out_s1[i].tvalid
-{% if cnfg.en_rdma %}
-                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
-{% endif %}
-                                      ;
-{% endif %}
-{% if cnfg.en_bypass %}
-        assign vfiu_tx_sel_bypass   = axis_bypass_out_s1[i].tvalid
-{% if cnfg.en_rdma %}
-                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
-{% endif %}
-{% if cnfg.en_tcp %}
-                                      & ~vfiu_tx_sel_tcp
-{% endif %}
-                                      ;
-{% endif %}
-        assign vfiu_tx_sel_p2p      = axisr_p2p_out[i].tvalid
-{% if cnfg.en_rdma %}
-                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
-{% endif %}
-{% if cnfg.en_tcp %}
-                                      & ~vfiu_tx_sel_tcp
-{% endif %}
-{% if cnfg.en_bypass %}
-                                      & ~vfiu_tx_sel_bypass
-{% endif %}
-                                      ;
-        assign vfiu_tx_sel_host     = axisr_host_vfiu_tx[i].tvalid
-{% if cnfg.en_rdma %}
-                                      & ~vfiu_tx_sel_rdma_req & ~vfiu_tx_sel_rdma_rsp
-{% endif %}
-{% if cnfg.en_tcp %}
-                                      & ~vfiu_tx_sel_tcp
-{% endif %}
-{% if cnfg.en_bypass %}
-                                      & ~vfiu_tx_sel_bypass
-{% endif %}
-                                      & ~vfiu_tx_sel_p2p;
-
-        // Mux data to vFIU TX
-        assign axisr_vfiu_to_switch[i].tvalid =
-{% if cnfg.en_rdma %}
-                                                 vfiu_tx_sel_rdma_req | vfiu_tx_sel_rdma_rsp |
-{% endif %}
-{% if cnfg.en_tcp %}
-                                                 vfiu_tx_sel_tcp |
-{% endif %}
-{% if cnfg.en_bypass %}
-                                                 vfiu_tx_sel_bypass |
-{% endif %}
-                                                 vfiu_tx_sel_p2p | vfiu_tx_sel_host;
-        assign axisr_vfiu_to_switch[i].tdata  =
-{% if cnfg.en_rdma %}
-                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tdata :
-                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tdata :
-{% endif %}
-{% if cnfg.en_tcp %}
-                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tdata :
-{% endif %}
-{% if cnfg.en_bypass %}
-                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tdata :
-{% endif %}
-                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tdata :
-                                                                        axisr_host_vfiu_tx[i].tdata;
-        assign axisr_vfiu_to_switch[i].tkeep  =
-{% if cnfg.en_rdma %}
-                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tkeep :
-                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tkeep :
-{% endif %}
-{% if cnfg.en_tcp %}
-                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tkeep :
-{% endif %}
-{% if cnfg.en_bypass %}
-                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tkeep :
-{% endif %}
-                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tkeep :
-                                                                        axisr_host_vfiu_tx[i].tkeep;
-        assign axisr_vfiu_to_switch[i].tlast  =
-{% if cnfg.en_rdma %}
-                                                 vfiu_tx_sel_rdma_req ? axis_rdma_out_req_s1[i].tlast :
-                                                 vfiu_tx_sel_rdma_rsp ? axis_rdma_out_rsp_s1[i].tlast :
-{% endif %}
-{% if cnfg.en_tcp %}
-                                                 vfiu_tx_sel_tcp      ? axis_tcp_out_s1[i].tlast :
-{% endif %}
-{% if cnfg.en_bypass %}
-                                                 vfiu_tx_sel_bypass   ? axis_bypass_out_s1[i].tlast :
-{% endif %}
-                                                 vfiu_tx_sel_p2p      ? axisr_p2p_out[i].tlast :
-                                                                        axisr_host_vfiu_tx[i].tlast;
-        assign axisr_vfiu_to_switch[i].tid    = vfiu_tx_sel_host ? axisr_host_vfiu_tx[i].tid :
-                                                 vfiu_tx_sel_p2p  ? axisr_p2p_out[i].tid : '0;
-        // For host TX, use tdest from gateway_send (routes to HOST_RX)
-        // For P2P TX, user specifies target vFPGA in tdest[5:2], we fill sender_id=i
-        // For others use route_out from gateway_send
-        assign axisr_vfiu_to_switch[i].tdest  = vfiu_tx_sel_host ? axisr_host_vfiu_tx[i].tdest :
-                                                 vfiu_tx_sel_p2p  ? {4'b0, i[3:0], axisr_p2p_out[i].tdest[5:2], 2'b0} :
-                                                                    vfiu_route_out[i];
-
-        // Ready signals back to sources
-{% if cnfg.en_rdma %}
-        assign axis_rdma_out_req_s1[i].tready = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_rdma_req;
-        assign axis_rdma_out_rsp_s1[i].tready = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_rdma_rsp;
-{% endif %}
-{% if cnfg.en_tcp %}
-        assign axis_tcp_out_s1[i].tready      = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_tcp;
-{% endif %}
-{% if cnfg.en_bypass %}
-        assign axis_bypass_out_s1[i].tready   = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_bypass;
-{% endif %}
-        assign axisr_p2p_out[i].tready        = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_p2p;
-        assign axisr_host_vfiu_tx[i].tready   = axisr_vfiu_to_switch[i].tready & vfiu_tx_sel_host;
-
-        // ====================================================================
-        // Gateway modules for route control and validation
-        // ====================================================================
-        // Note: The gateway_send and gateway_recv modules here are for network
-        // routing (RDMA/TCP/Bypass). The host data path gateways are inside
-        // vfiu_top which handles the host memory path via vIO Switch.
-        //
-        // The host data interfaces (axisr_host_vfiu_tx/axis_host_vfiu_rx) should
-        // connect to user_wrapper which contains vfiu_top with the full gateway
-        // implementation for host memory path.
-
-        // Gateway send for each vFIU (sets route_out based on configuration)
-        // This is for network routing, not host memory path
-        gateway_send #(
-            .N_DESTS(1),
-            .ID(i),
-            .N_REGIONS(N_REGIONS)
-        ) inst_gateway_send (
-            .aclk(aclk),
-            .aresetn(aresetn),
-            .route_ctrl(vfiu_route_ctrl[i]),
-            .route_out(vfiu_route_out[i]),
-            // Host data path - connected to axisr_host_vfiu_tx for vIO Switch routing
-            .s_axis_host(axis_host_out_s1[i]),      // From user/vfiu_top host write data
-            .m_axis_host(axisr_host_vfiu_tx[i])     // To vIO Switch (with tdest)
+            // P2P Path (AXI4SR - tid = sender vFPGA ID)
+            .s_axis_p2p_tx(axisr_p2p_out[i]),
+            .m_axis_p2p_rx(axisr_p2p_in[i])
         );
 
-        // Gateway recv for each vFIU (validates incoming route from vIO Switch)
-        // vfiu_route_in[i] comes from vIO Switch route_out (extracted from tdest)
-        // Also handles host RX data path with bypass logic
+    end // gen_vfiu_top
 
-        // Internal AXI4SR interface for host RX with tdest (from vIO Switch demux)
-        AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axisr_host_rx_to_gateway ();
+    // NOTE: vfiu_top handles the TX mux and RX demux internally.
+    // The m_axis_switch port from vfiu_top is directly connected to axisr_vfiu_to_switch[i].
+    // gateway_send and gateway_recv are also instantiated inside vfiu_top.
+    //
+    // HOST path uses AXI4S (no TID) - PID comes from local_credits in user_wrapper.
 
-        // Connect demuxed host RX data to gateway_recv input
-        assign axisr_host_rx_to_gateway.tvalid = axis_host_vfiu_rx[i].tvalid;
-        assign axisr_host_rx_to_gateway.tdata  = axis_host_vfiu_rx[i].tdata;
-        assign axisr_host_rx_to_gateway.tkeep  = axis_host_vfiu_rx[i].tkeep;
-        assign axisr_host_rx_to_gateway.tlast  = axis_host_vfiu_rx[i].tlast;
-        assign axisr_host_rx_to_gateway.tid    = '0;
-        // tdest carries the route_id from HOST_TX
-        assign axisr_host_rx_to_gateway.tdest  = vfiu_route_in[i];
-        assign axis_host_vfiu_rx[i].tready     = axisr_host_rx_to_gateway.tready;
-
-        gateway_recv #(
-            .N_DESTS(1),
-            .ID(i),
-            .N_REGIONS(N_REGIONS)
-        ) inst_gateway_recv (
-            .aclk(aclk),
-            .aresetn(aresetn),
-            .route_ctrl(vfiu_route_ctrl[i]),
-            .route_in(vfiu_route_in[i]),
-            .route_valid(vfiu_route_valid),
-            .route_bypass(vfiu_route_bypass),
-            // Host RX data path - from vIO Switch to user/vfiu_top
-            .s_axis_host(axisr_host_rx_to_gateway),  // From vIO Switch (with route_id)
-            .m_axis_host(axis_host_in_s1[i]),        // To user (stripped tdest)
-            // P2P RX data path - from vIO Switch (another vFPGA) to user
-            .s_axis_p2p(axisr_p2p_vfiu_rx[i]),       // From vIO Switch (with route_id)
-            .m_axis_p2p(axis_p2p_in[i])              // To user (stripped tdest, validated)
-        );
+    // Extract route_out from vfiu_top TX for vIO Switch routing
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_vfiu_route_out
+        assign vfiu_route_out[i] = axisr_vfiu_to_switch[i].tdest;
     end
 
     // Clock crossing (if enabled)
@@ -1781,6 +1655,32 @@ module design_dynamic_top #(
     end
 {% endif %}
 
+    // P2P - Direct connection using AXI4SR with TID (like microShell)
+    // No ccross/slice needed - same clock domain within shell, direct path to user
+    // P2P is vFPGA-to-vFPGA communication routed through vio_switch.
+    // RX: vio_switch → gateway_recv (validation) → axisr_p2p_in → user (tid = sender vFPGA)
+    // TX: user → axisr_p2p_out → gateway_send (validation + route_id) → vio_switch
+{% if cnfg.en_p2p %}
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_p2p_ul
+        // RX: Direct from gateway_recv output to user (AXI4SR with tid)
+        `AXISR_ASSIGN(axisr_p2p_in[i], axisr_p2p_in_ul[i])
+        // TX: Direct from user to gateway_send input (AXI4SR with tid)
+        `AXISR_ASSIGN(axisr_p2p_out_ul[i], axisr_p2p_out[i])
+    end
+{% else %}
+    // P2P not enabled - tie off interfaces (AXI4SR)
+    for (genvar i = 0; i < N_REGIONS; i++) begin : gen_p2p_tieoff
+        // RX: Discard incoming P2P data
+        assign axisr_p2p_in[i].tready = 1'b1;
+        // TX: No P2P data to send
+        assign axisr_p2p_out[i].tvalid = 1'b0;
+        assign axisr_p2p_out[i].tdata  = '0;
+        assign axisr_p2p_out[i].tkeep  = '0;
+        assign axisr_p2p_out[i].tlast  = 1'b0;
+        assign axisr_p2p_out[i].tid    = '0;
+    end
+{% endif %}
+
     // ================-----------------------------------------------------------------
 	// Rest of interfaces
 	// ================-----------------------------------------------------------------
@@ -1825,6 +1725,9 @@ module design_dynamic_top #(
     metaIntf #(.STYPE(req_t)) bpss_wr_sq [N_REGIONS] ();
     metaIntf #(.STYPE(req_t)) bpss_rd_sq_s0 [N_REGIONS] ();
     metaIntf #(.STYPE(req_t)) bpss_wr_sq_s0 [N_REGIONS] ();
+    // Validated bypass requests (after gate_mem validation in vfiu_top)
+    metaIntf #(.STYPE(req_t)) bpss_rd_sq_valid [N_REGIONS] ();
+    metaIntf #(.STYPE(req_t)) bpss_wr_sq_valid [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) bpss_rd_cq [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) bpss_wr_cq [N_REGIONS] ();
     metaIntf #(.STYPE(ack_t)) bpss_rd_cq_s0 [N_REGIONS] ();
@@ -1942,8 +1845,9 @@ module design_dynamic_top #(
 {% endif %}	
         .s_notify(notify),
         .m_host_sq(host_sq),
-        .s_bpss_rd_sq(bpss_rd_sq),
-        .s_bpss_wr_sq(bpss_wr_sq),
+        // Use validated bypass requests (after gate_mem in vfiu_top)
+        .s_bpss_rd_sq(bpss_rd_sq_valid),
+        .s_bpss_wr_sq(bpss_wr_sq_valid),
         .m_bpss_rd_cq(bpss_rd_cq),
         .m_bpss_wr_cq(bpss_wr_cq),
 {% if cnfg.en_strm %}
@@ -2034,7 +1938,7 @@ module design_dynamic_top #(
         .bpss_wr_cq_data                (bpss_wr_cq_ul[{{ i }}].data),
         
 {% if cnfg.en_strm %}
-        // HOST STREAMS
+        // HOST STREAMS (AXI4S - PID comes from local_credits, not sideband TID)
         .axis_host_sink_tdata           (axis_host_in_ul[{{ i }}].tdata),
         .axis_host_sink_tkeep           (axis_host_in_ul[{{ i }}].tkeep),
         .axis_host_sink_tlast           (axis_host_in_ul[{{ i }}].tlast),
@@ -2161,6 +2065,23 @@ module design_dynamic_top #(
         .axis_bypass_src_tlast          (axis_bypass_out_ul[{{ i }}].tlast),
         .axis_bypass_src_tready         (axis_bypass_out_ul[{{ i }}].tready),
         .axis_bypass_src_tvalid         (axis_bypass_out_ul[{{ i }}].tvalid),
+{% endif %}
+{% if cnfg.en_p2p %}
+        // P2P STREAMS (vFPGA-to-vFPGA communication) - AXI4SR with TID (like microShell)
+        // RX: tid = sender vFPGA ID
+        .axis_p2p_sink_tdata            (axisr_p2p_in_ul[{{ i }}].tdata),
+        .axis_p2p_sink_tkeep            (axisr_p2p_in_ul[{{ i }}].tkeep),
+        .axis_p2p_sink_tlast            (axisr_p2p_in_ul[{{ i }}].tlast),
+        .axis_p2p_sink_tready           (axisr_p2p_in_ul[{{ i }}].tready),
+        .axis_p2p_sink_tvalid           (axisr_p2p_in_ul[{{ i }}].tvalid),
+        .axis_p2p_sink_tid              (axisr_p2p_in_ul[{{ i }}].tid),
+        // TX: tid for user identification
+        .axis_p2p_src_tdata             (axisr_p2p_out_ul[{{ i }}].tdata),
+        .axis_p2p_src_tkeep             (axisr_p2p_out_ul[{{ i }}].tkeep),
+        .axis_p2p_src_tlast             (axisr_p2p_out_ul[{{ i }}].tlast),
+        .axis_p2p_src_tready            (axisr_p2p_out_ul[{{ i }}].tready),
+        .axis_p2p_src_tvalid            (axisr_p2p_out_ul[{{ i }}].tvalid),
+        .axis_p2p_src_tid               (axisr_p2p_out_ul[{{ i }}].tid),
 {% endif %}
 
         .S_BSCAN_drck(S_BSCAN_drck[{{ i }}]),

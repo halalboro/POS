@@ -383,6 +383,9 @@ macro(validation_checks_hw)
             message(FATAL_ERROR "Max 15 vFPGAs supported.")
         endif()
 
+        # P2P is always enabled when there are multiple regions (vFPGA-to-vFPGA communication)
+        set(EN_P2P ${MULT_REGIONS})
+
         # Number of configurations needs to be 1 without PR
         if(N_CONFIG GREATER 1 AND NOT EN_PR)
             message(FATAL_ERROR "When PR is not enabled only one configuration of the shell should exist.")

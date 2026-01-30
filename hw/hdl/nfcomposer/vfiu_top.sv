@@ -35,445 +35,337 @@ import lynxTypes::*;
 /**
  * @brief   vFPGA Isolation Unit (vFIU) - Security gateway for multi-tenant isolation
  *
- *  @param N_ID         Number of vFPGA regions
+ * This module provides security isolation for a vFPGA region. It has:
+ *   - Single bidirectional AXI4SR port to vIO Switch (handles demux/mux internally)
+ *   - 6 data paths to/from the vFPGA: HOST, RDMA_REQ, RDMA_RSP, TCP, BYPASS, P2P
+ *   - Memory request validation via gate_mem
+ *
+ * Internal components:
+ *   - RX Demux: Routes incoming vIO Switch data to correct path based on sender_id
+ *   - TX Mux: Combines 6 TX paths into single stream for vIO Switch
+ *   - gateway_send: Attaches route_id (tdest) to outgoing data
+ *   - gateway_recv: Validates incoming routes
+ *   - gate_mem: Validates memory requests against configured endpoints
+ *
+ * Route ID format (14 bits):
+ *   [13:10] reserved
+ *   [9:6]   sender_id (source port/vFPGA)
+ *   [5:2]   receiver_id (destination port/vFPGA)
+ *   [1:0]   flags
+ *
+ *  @param N_REGIONS    Number of vFPGA regions
  *  @param N_ENDPOINTS  Number of memory endpoints for access control
+ *  @param VFPGA_ID     vFPGA ID for route sender identification
  */
 module vfiu_top #(
-    // parameter integer MUX_DATA_BITS = AXI_DATA_BITS,
-    parameter integer N_ID = N_REGIONS,
+    parameter integer N_REGIONS = N_REGIONS,
     parameter integer N_ENDPOINTS = 4,
-    parameter integer VFPGA_ID = 0    // vFPGA ID for hardcoded test mode routing
+    parameter integer VFPGA_ID = 0
 ) (
     input  logic                                aclk,
     input  logic                                aresetn,
 
-    // Memory endpoint control for security validation (99 bits per endpoint)
+    // ========================================================================
+    // vIO Switch Interface (2 unidirectional ports, matching vio_switch_N.sv)
+    // ========================================================================
+    // Connects to vio_switch ports: data_vfiu_src[i] and data_vfiu_sink[i]
+    AXI4SR.s                                    s_axis_switch,  // RX: vIO Switch src → vFIU (incoming data)
+    AXI4SR.m                                    m_axis_switch,  // TX: vFIU → vIO Switch sink (outgoing data)
+
+    // ========================================================================
+    // Memory Endpoint Control
+    // ========================================================================
     input logic [(99*N_ENDPOINTS)-1:0]          mem_ctrl,
 
-    // DESCRIPTORS
-    input logic                                 user_rd_sq_valid,
-    output  logic                               user_rd_sq_ready,
-    input req_t                                 user_rd_sq_data,
-    input logic                                 user_wr_sq_valid,
-    output  logic                               user_wr_sq_ready,
-    input req_t                                 user_wr_sq_data,
+    // ========================================================================
+    // Memory Request Interfaces (gate_mem)
+    // ========================================================================
+    metaIntf.s                                  s_rd_req,
+    metaIntf.s                                  s_wr_req,
+    metaIntf.m                                  m_rd_req,
+    metaIntf.m                                  m_wr_req,
 
-    // HOST DESCRIPTORS
-    (* mark_debug = "true" *) input  logic 							      host_sq_valid,
-    output logic 							      host_sq_ready,
-    (* mark_debug = "true" *) input  dreq_t 							  host_sq_data,
+    // ========================================================================
+    // Routing Control
+    // ========================================================================
+    input  logic [13:0]                         route_ctrl,
 
-    // BYPASS DESCRIPTORS
-    (* mark_debug = "true" *) output logic                                bpss_rd_sq_valid,
-    input  logic                                bpss_rd_sq_ready,
-    (* mark_debug = "true" *) output req_t                                bpss_rd_sq_data,
-    (* mark_debug = "true" *) output logic                                bpss_wr_sq_valid,
-    input  logic                                bpss_wr_sq_ready,
-    (* mark_debug = "true" *) output req_t                                bpss_wr_sq_data,
+    // ========================================================================
+    // HOST Path (vFPGA ↔ Host DMA) - AXI4S (no tid needed)
+    // ========================================================================
+    AXI4S.s                                     s_axis_host_tx,  // From user/credits
+    AXI4S.m                                     m_axis_host_rx,  // To user/credits
 
+    // ========================================================================
+    // RDMA Path (vFPGA ↔ RDMA stack) - AXI4S, separate REQ and RSP
+    // ========================================================================
+    AXI4S.s                                     s_axis_rdma_tx_req,  // RDMA read requests from vFPGA
+    AXI4S.s                                     s_axis_rdma_tx_rsp,  // RDMA read responses from vFPGA
+    AXI4S.m                                     m_axis_rdma_rx,      // RDMA data to vFPGA (single RX path)
 
-    // AXI4S HOST SINK
-    input  logic[AXI_DATA_BITS-1:0]             axis_dtu_sink_tdata,
-    input  logic[AXI_DATA_BITS/8-1:0]           axis_dtu_sink_tkeep,
-    input  logic                                axis_dtu_sink_tlast,
-    (* mark_debug = "true" *) output logic                                axis_dtu_sink_tready,
-    (* mark_debug = "true" *) input  logic                                axis_dtu_sink_tvalid,
-    input logic[PID_BITS-1:0]                   axis_dtu_sink_tid,
+    // ========================================================================
+    // TCP Path (vFPGA ↔ TCP stack) - AXI4S
+    // ========================================================================
+    AXI4S.s                                     s_axis_tcp_tx,
+    AXI4S.m                                     m_axis_tcp_rx,
 
-	// AXI4SR INTER SOURCE
-    output logic[AXI_DATA_BITS-1:0]             axis_dtu_src_tdata,
-    output logic[AXI_DATA_BITS/8-1:0]           axis_dtu_src_tkeep,
-    output logic                                axis_dtu_src_tlast,
-    input  logic                                axis_dtu_src_tready,
-    output logic                                axis_dtu_src_tvalid,
-    output logic[PID_BITS-1:0]                  axis_dtu_src_tid,
+    // ========================================================================
+    // BYPASS Path (vFPGA ↔ Bypass stack) - AXI4S
+    // ========================================================================
+    AXI4S.s                                     s_axis_bypass_tx,
+    AXI4S.m                                     m_axis_bypass_rx,
 
-    input  logic[AXI_DATA_BITS-1:0]             axisr_ul_sink_tdata,
-    input  logic[AXI_DATA_BITS/8-1:0]           axisr_ul_sink_tkeep,
-    input  logic                                axisr_ul_sink_tlast,
-    (* mark_debug = "true" *) output logic                                axisr_ul_sink_tready,
-    (* mark_debug = "true" *) input  logic                                axisr_ul_sink_tvalid,    
-    input logic[PID_BITS-1:0]                   axisr_ul_sink_tid,
-
-	// AXI4SR INTER SOURCE
-    output logic[AXI_DATA_BITS-1:0]             axisr_ul_src_tdata,
-    output logic[AXI_DATA_BITS/8-1:0]           axisr_ul_src_tkeep,
-    output logic                                axisr_ul_src_tlast,
-    (* mark_debug = "true" *) input  logic                                axisr_ul_src_tready,
-    (* mark_debug = "true" *) output logic                                axisr_ul_src_tvalid,
-    output logic[PID_BITS-1:0]                  axisr_ul_src_tid, 
-
-    // Routing capability control
-    input logic [13:0]                           route_ctrl,
-    input logic [13:0]                           route_in,
-    output logic [13:0]                          route_out,
-
-    // Host data path via vIO Switch (TX: vFPGA → Host, RX: Host → vFPGA)
-    // These connect to HOST_TX/HOST_RX ports on the vIO Switch
-    output logic[AXI_DATA_BITS-1:0]              axis_host_tx_to_switch_tdata,
-    output logic[AXI_DATA_BITS/8-1:0]            axis_host_tx_to_switch_tkeep,
-    output logic                                 axis_host_tx_to_switch_tlast,
-    input  logic                                 axis_host_tx_to_switch_tready,
-    output logic                                 axis_host_tx_to_switch_tvalid,
-    output logic[PID_BITS-1:0]                   axis_host_tx_to_switch_tid,
-    output logic[13:0]                           axis_host_tx_to_switch_tdest,
-
-    input  logic[AXI_DATA_BITS-1:0]              axis_host_rx_from_switch_tdata,
-    input  logic[AXI_DATA_BITS/8-1:0]            axis_host_rx_from_switch_tkeep,
-    input  logic                                 axis_host_rx_from_switch_tlast,
-    output logic                                 axis_host_rx_from_switch_tready,
-    input  logic                                 axis_host_rx_from_switch_tvalid,
-    input  logic[PID_BITS-1:0]                   axis_host_rx_from_switch_tid,
-    input  logic[13:0]                           axis_host_rx_from_switch_tdest
+    // ========================================================================
+    // P2P Path (vFPGA ↔ vFPGA) - AXI4SR with tid = sender vFPGA ID
+    // ========================================================================
+    AXI4SR.s                                    s_axis_p2p_tx,   // tid ignored on TX (we know sender)
+    AXI4SR.m                                    m_axis_p2p_rx    // tid = sender vFPGA ID on RX
 );
 
-    // Host descriptors
-    metaIntf #(.STYPE(dreq_t)) host_sq ();
-    metaIntf #(.STYPE(dreq_t)) host_sq_int ();
-    
-    assign host_sq.valid                        = host_sq_valid;
-    assign host_sq_ready                        = host_sq.ready;
-    assign host_sq.data                         = host_sq_data;
-
-    // Bypass descriptors
-    metaIntf #(.STYPE(req_t)) bpss_rd_req ();
-    metaIntf #(.STYPE(req_t)) bpss_wr_req ();
-    metaIntf #(.STYPE(req_t)) bpss_rd_req_int ();
-    metaIntf #(.STYPE(req_t)) bpss_wr_req_int ();
-    
-    assign bpss_rd_sq_valid                     = bpss_rd_req.valid;
-    assign bpss_rd_req.ready                    = bpss_rd_sq_ready; 
-    assign bpss_rd_sq_data                      = bpss_rd_req.data;
-
-    assign bpss_wr_sq_valid                     = bpss_wr_req.valid;
-    assign bpss_wr_req.ready                    = bpss_wr_sq_ready; 
-    assign bpss_wr_sq_data                      = bpss_wr_req.data; 
-
-
-    AXI4S axis_dtu_sink ();
-    AXI4S axis_dtu_sink_int ();
-
-    assign axis_dtu_sink.tvalid                = axis_dtu_sink_tvalid;
-    assign axis_dtu_sink.tdata                 = axis_dtu_sink_tdata;
-    assign axis_dtu_sink.tkeep                 = axis_dtu_sink_tkeep;
-    assign axis_dtu_sink.tlast                 = axis_dtu_sink_tlast;
-    assign axis_dtu_sink_tready                = axis_dtu_sink.tready;
-
-    AXI4S axis_dtu_src ();
-    AXI4S axis_dtu_src_int ();
-
-    assign axis_dtu_src_tvalid                 = axis_dtu_src.tvalid;
-    assign axis_dtu_src_tdata                  = axis_dtu_src.tdata;
-    assign axis_dtu_src_tkeep                  = axis_dtu_src.tkeep;
-    assign axis_dtu_src_tlast                  = axis_dtu_src.tlast;
-    assign axis_dtu_src.tready                 = axis_dtu_src_tready;
-
-    AXI4SR axis_host_send [N_STRM_AXI] ();
-    AXI4SR axis_host_recv [N_STRM_AXI] ();
-
-    `AXISR_ASSIGN(axis_host_send[0], axis_host_send_int[0]);
-    `AXISR_ASSIGN(axis_host_recv_int[0], axis_host_recv[0]);
-
-    // Host data path via vIO Switch interfaces
-    // TX: vFPGA → gateway_send → vIO Switch → HOST_RX → DMA
-    // RX: DMA → HOST_TX → vIO Switch → gateway_recv → vFPGA
-    AXI4S  axis_host_tx_to_gateway ();     // From local_credits_host_wr to gateway_send
-    AXI4SR axis_host_tx_from_gateway ();   // From gateway_send to vIO Switch
-    AXI4SR axis_host_rx_to_gateway ();     // From vIO Switch to gateway_recv
-    AXI4S  axis_host_rx_from_gateway ();   // From gateway_recv to local_credits_host_rd
-
-    assign axis_host_send[0].tvalid                = axisr_ul_sink_tvalid;
-    assign axis_host_send[0].tdata                 = axisr_ul_sink_tdata;
-    assign axis_host_send[0].tkeep                 = axisr_ul_sink_tkeep;
-    assign axis_host_send[0].tlast                 = axisr_ul_sink_tlast;
-    assign axisr_ul_sink_tready                = axis_host_send[0].tready;
-    assign axis_host_send[0].tid                   = axisr_ul_sink_tid;
-    
-    assign axisr_ul_src_tvalid                 = axis_host_recv[0].tvalid;
-    assign axisr_ul_src_tdata                  = axis_host_recv[0].tdata;
-    assign axisr_ul_src_tkeep                  = axis_host_recv[0].tkeep;
-    assign axisr_ul_src_tlast                  = axis_host_recv[0].tlast;
-    assign axis_host_recv[0].tready                 = axisr_ul_src_tready;
-    assign axisr_ul_src_tid                    = axis_host_recv[0].tid;
-
-    // Host TX to vIO Switch (from gateway_send output)
-    assign axis_host_tx_to_switch_tvalid       = axis_host_tx_from_gateway.tvalid;
-    assign axis_host_tx_to_switch_tdata        = axis_host_tx_from_gateway.tdata;
-    assign axis_host_tx_to_switch_tkeep        = axis_host_tx_from_gateway.tkeep;
-    assign axis_host_tx_to_switch_tlast        = axis_host_tx_from_gateway.tlast;
-    assign axis_host_tx_to_switch_tid          = axis_host_tx_from_gateway.tid;
-    assign axis_host_tx_to_switch_tdest        = axis_host_tx_from_gateway.tdest;
-    assign axis_host_tx_from_gateway.tready    = axis_host_tx_to_switch_tready;
-
-    // Host RX from vIO Switch (to gateway_recv input)
-    assign axis_host_rx_to_gateway.tvalid      = axis_host_rx_from_switch_tvalid;
-    assign axis_host_rx_to_gateway.tdata       = axis_host_rx_from_switch_tdata;
-    assign axis_host_rx_to_gateway.tkeep       = axis_host_rx_from_switch_tkeep;
-    assign axis_host_rx_to_gateway.tlast       = axis_host_rx_from_switch_tlast;
-    assign axis_host_rx_to_gateway.tid         = axis_host_rx_from_switch_tid;
-    assign axis_host_rx_to_gateway.tdest       = axis_host_rx_from_switch_tdest;
-    assign axis_host_rx_from_switch_tready     = axis_host_rx_to_gateway.tready;
-
-    // (* mark_debug = "true" *) logic host_sq_int_valid;
-    // (* mark_debug = "true" *) logic host_sq_int_data_req_1_actv;
-    // (* mark_debug = "true" *) logic host_local_sq_rd_valid;
-    // (* mark_debug = "true" *) logic local_sq_rd_valid;
-    // (* mark_debug = "true" *) logic local_sq_rd_host_valid;
-    // (* mark_debug = "true" *) logic local_cred_rd_host_valid;
-    // (* mark_debug = "true" *) logic bpss_rd_req_int_valid;
-
-    // assign host_sq_int_valid                     = host_sq_int.valid;
-    // assign host_sq_int_data_req_1_actv           = host_sq_int.data.req_1.actv;
-    // assign host_local_sq_rd_valid                = host_local_sq_rd.valid;
-    // assign local_sq_rd_valid                     = local_sq_rd.valid;
-    // assign local_sq_rd_host_valid                = local_sq_rd_host.valid;
-    // assign local_cred_rd_host_valid              = local_cred_rd_host.valid;
-    // assign bpss_rd_req_int_valid                 = bpss_rd_req_int.valid;
-
-
-    // 
-    // ASSIGN (NO REGS)
-    //
-
-    // Host request
-    `META_ASSIGN(host_sq, host_sq_int)
-
-    // Bypass - now routed through gateway_send for security validation
-    // Original direct assignment removed - see gateway_send instantiation below
-    // `META_ASSIGN(bpss_rd_req_int, bpss_rd_req)
-    // `META_ASSIGN(bpss_wr_req_int, bpss_wr_req)
-
-
-    // AXIS host
-    `AXIS_ASSIGN(axis_dtu_sink, axis_dtu_sink_int)
-    `AXIS_ASSIGN(axis_dtu_src_int, axis_dtu_src)
-
-    //
-    // SQ
-    //
-
-    metaIntf #(.STYPE(req_t)) user_sq_rd_int ();
-    metaIntf #(.STYPE(req_t)) user_sq_wr_int ();
-
-    assign user_sq_rd_int.valid                     = user_rd_sq_valid;
-    assign user_sq_rd_int.data                      = user_rd_sq_data;
-    assign user_rd_sq_ready                         = user_sq_rd_int.ready;
-
-    assign user_sq_wr_int.valid                     = user_wr_sq_valid;
-    assign user_sq_wr_int.data                      = user_wr_sq_data;
-    assign user_wr_sq_ready                         = user_sq_wr_int.ready;
-
-    metaIntf #(.STYPE(req_t)) host_local_sq_rd ();
-    metaIntf #(.STYPE(req_t)) host_local_sq_wr ();
-    metaIntf #(.STYPE(req_t)) user_local_sq_rd ();
-    metaIntf #(.STYPE(req_t)) user_local_sq_wr ();
-
-    metaIntf #(.STYPE(req_t)) local_sq_rd ();
-    metaIntf #(.STYPE(req_t)) local_sq_wr ();
-
-
-    // Host request mux
-    host_req_mux inst_host_mux (
-        .host_sq(host_sq_int),
-        .host_local_rd(host_local_sq_rd),
-        .host_local_wr(host_local_sq_wr),
-        .aclk(aclk),
-        .aresetn(aresetn)
-    );
-
-    // User request mux
-    user_req_mux #(
-        .ID_REG(0)
-    ) inst_user_mux (
-        .user_sq_rd(user_sq_rd_int),
-        .user_sq_wr(user_sq_wr_int),
-        .user_local_rd(user_local_sq_rd),
-        .user_local_wr(user_local_sq_wr),
-        .aclk(aclk),
-        .aresetn(aresetn)
-    );
-
-    // Host user arbiters
-    req_arb_2_1 inst_arb_local_rd (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .s_req_0(user_local_sq_rd),
-        .s_req_1(host_local_sq_rd),
-        .m_req(local_sq_rd)
-    );
-
-    req_arb_2_1 inst_arb_local_wr (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .s_req_0(user_local_sq_wr),
-        .s_req_1(host_local_sq_wr),
-        .m_req(local_sq_wr)
-    );
-
-
-    //
-    // Local credits
-    // 
-    metaIntf #(.STYPE(req_t)) local_sq_rd_host ();
-    metaIntf #(.STYPE(req_t)) local_sq_rd_card ();
-    metaIntf #(.STYPE(req_t)) local_sq_wr_host ();
-    metaIntf #(.STYPE(req_t)) local_sq_wr_card ();
-
-    metaIntf #(.STYPE(req_t)) local_cred_rd_host ();
-    metaIntf #(.STYPE(req_t)) local_cred_rd_card ();
-    metaIntf #(.STYPE(req_t)) local_cred_wr_host ();
-    metaIntf #(.STYPE(req_t)) local_cred_wr_card ();
-
-    // Filtered requests after security validation (gateway_send output)
-    metaIntf #(.STYPE(req_t)) filtered_rd_req ();
-    metaIntf #(.STYPE(req_t)) filtered_wr_req ();
-
-    AXI4SR axis_host_send_int [N_STRM_AXI] ();
-    AXI4SR axis_host_recv_int [N_STRM_AXI] ();
-    AXI4SR axis_card_send_int [N_CARD_AXI] ();
-    AXI4SR axis_card_recv_int [N_CARD_AXI] (); 
-
-    `META_ASSIGN(local_sq_rd, local_sq_rd_host)
-    `META_ASSIGN(local_sq_wr, local_sq_wr_host)
+    // ========================================================================================
+    // Port ID Constants (must match vio_switch port assignments)
+    // ========================================================================================
+    localparam logic [3:0] PORT_HOST_TX       = N_REGIONS + 0;  // DMA read response
+    localparam logic [3:0] PORT_HOST_RX       = N_REGIONS + 1;  // DMA write data
+    localparam logic [3:0] PORT_RDMA_RX       = N_REGIONS + 2;  // RDMA RX (data to vFPGA)
+    localparam logic [3:0] PORT_RDMA_TX_REQ   = N_REGIONS + 3;  // RDMA TX REQ (read requests to stack)
+    localparam logic [3:0] PORT_RDMA_TX_RSP   = N_REGIONS + 4;  // RDMA TX RSP (read responses to stack)
+    localparam logic [3:0] PORT_TCP           = N_REGIONS + 5;  // TCP stack
+    localparam logic [3:0] PORT_BYPASS_RX     = N_REGIONS + 6;  // Bypass stack
 
     // ========================================================================================
-    // Host Data Path via vIO Switch
+    // Internal Interfaces
     // ========================================================================================
-    // TX (Write to Host): vFPGA → local_credits_host_wr → gateway_send → vIO Switch → DMA
-    // RX (Read from Host): DMA → vIO Switch → gateway_recv → local_credits_host_rd → vFPGA
-    //
-    // NOTE: The direct DMA path (axis_dtu_src/sink) is kept but unused when vIO Switch is enabled.
-    // The new path goes through axis_host_tx_to_switch / axis_host_rx_from_switch.
 
-    local_credits_host_rd #(
-        .N_DESTS(N_STRM_AXI)
-    ) inst_local_credits_host_rd (
+    // gateway_send outputs (after route_id attached)
+    AXI4SR axis_host_tx_from_gateway ();
+    AXI4SR axis_rdma_req_tx_from_gateway ();
+    AXI4SR axis_rdma_rsp_tx_from_gateway ();
+    AXI4SR axis_tcp_tx_from_gateway ();
+    AXI4SR axis_bypass_tx_from_gateway ();
+    AXI4SR axis_p2p_tx_from_gateway ();
+
+    // Demuxed RX streams (from vIO Switch, before gateway_recv)
+    AXI4SR axis_host_rx_to_gateway ();
+    AXI4SR axis_rdma_rx_to_gateway ();
+    AXI4SR axis_tcp_rx_to_gateway ();
+    AXI4SR axis_bypass_rx_to_gateway ();
+    AXI4SR axis_p2p_rx_to_gateway ();
+
+    // gateway_recv outputs (validated, to user)
+    AXI4S  axis_host_rx_from_gateway ();
+    AXI4S  axis_rdma_rx_from_gateway ();
+    AXI4S  axis_tcp_rx_from_gateway ();
+    AXI4S  axis_bypass_rx_from_gateway ();
+    AXI4SR axis_p2p_rx_from_gateway ();
+
+    // ========================================================================================
+    // RX DEMUX: vIO Switch → 5 paths based on sender_id in tdest[9:6]
+    // ========================================================================================
+    // The vIO Switch sends all data destined for this vFIU on s_axis_switch.
+    // We demux based on sender_id to route to the correct protocol path.
+
+    logic [3:0] rx_sender_id;
+    assign rx_sender_id = s_axis_switch.tdest[9:6];
+
+    // Determine which path this data belongs to
+    logic rx_is_host, rx_is_rdma, rx_is_tcp, rx_is_bypass, rx_is_p2p;
+    assign rx_is_host   = (rx_sender_id == PORT_HOST_TX);
+    assign rx_is_rdma   = (rx_sender_id == PORT_RDMA_RX);
+    assign rx_is_tcp    = (rx_sender_id == PORT_TCP);
+    assign rx_is_bypass = (rx_sender_id == PORT_BYPASS_RX);
+    assign rx_is_p2p    = (rx_sender_id < N_REGIONS) && (rx_sender_id != VFPGA_ID);
+
+    // HOST RX demux
+    assign axis_host_rx_to_gateway.tvalid = s_axis_switch.tvalid & rx_is_host;
+    assign axis_host_rx_to_gateway.tdata  = s_axis_switch.tdata;
+    assign axis_host_rx_to_gateway.tkeep  = s_axis_switch.tkeep;
+    assign axis_host_rx_to_gateway.tlast  = s_axis_switch.tlast;
+    assign axis_host_rx_to_gateway.tid    = s_axis_switch.tid;
+    assign axis_host_rx_to_gateway.tdest  = s_axis_switch.tdest;
+
+    // RDMA RX demux
+    assign axis_rdma_rx_to_gateway.tvalid = s_axis_switch.tvalid & rx_is_rdma;
+    assign axis_rdma_rx_to_gateway.tdata  = s_axis_switch.tdata;
+    assign axis_rdma_rx_to_gateway.tkeep  = s_axis_switch.tkeep;
+    assign axis_rdma_rx_to_gateway.tlast  = s_axis_switch.tlast;
+    assign axis_rdma_rx_to_gateway.tid    = s_axis_switch.tid;
+    assign axis_rdma_rx_to_gateway.tdest  = s_axis_switch.tdest;
+
+    // TCP RX demux
+    assign axis_tcp_rx_to_gateway.tvalid = s_axis_switch.tvalid & rx_is_tcp;
+    assign axis_tcp_rx_to_gateway.tdata  = s_axis_switch.tdata;
+    assign axis_tcp_rx_to_gateway.tkeep  = s_axis_switch.tkeep;
+    assign axis_tcp_rx_to_gateway.tlast  = s_axis_switch.tlast;
+    assign axis_tcp_rx_to_gateway.tid    = s_axis_switch.tid;
+    assign axis_tcp_rx_to_gateway.tdest  = s_axis_switch.tdest;
+
+    // BYPASS RX demux
+    assign axis_bypass_rx_to_gateway.tvalid = s_axis_switch.tvalid & rx_is_bypass;
+    assign axis_bypass_rx_to_gateway.tdata  = s_axis_switch.tdata;
+    assign axis_bypass_rx_to_gateway.tkeep  = s_axis_switch.tkeep;
+    assign axis_bypass_rx_to_gateway.tlast  = s_axis_switch.tlast;
+    assign axis_bypass_rx_to_gateway.tid    = s_axis_switch.tid;
+    assign axis_bypass_rx_to_gateway.tdest  = s_axis_switch.tdest;
+
+    // P2P RX demux
+    assign axis_p2p_rx_to_gateway.tvalid = s_axis_switch.tvalid & rx_is_p2p;
+    assign axis_p2p_rx_to_gateway.tdata  = s_axis_switch.tdata;
+    assign axis_p2p_rx_to_gateway.tkeep  = s_axis_switch.tkeep;
+    assign axis_p2p_rx_to_gateway.tlast  = s_axis_switch.tlast;
+    assign axis_p2p_rx_to_gateway.tid    = s_axis_switch.tid;
+    assign axis_p2p_rx_to_gateway.tdest  = s_axis_switch.tdest;
+
+    // Mux tready back to vIO Switch from whichever path is selected
+    assign s_axis_switch.tready =
+        rx_is_host   ? axis_host_rx_to_gateway.tready :
+        rx_is_rdma   ? axis_rdma_rx_to_gateway.tready :
+        rx_is_tcp    ? axis_tcp_rx_to_gateway.tready :
+        rx_is_bypass ? axis_bypass_rx_to_gateway.tready :
+        rx_is_p2p    ? axis_p2p_rx_to_gateway.tready :
+                       1'b1;  // Discard unknown traffic
+
+    // ========================================================================================
+    // TX MUX: 6 paths → vIO Switch (priority: RDMA_REQ > RDMA_RSP > TCP > BYPASS > P2P > HOST)
+    // ========================================================================================
+
+    // Priority encoding (RDMA REQ and RSP have highest priority for latency-sensitive RDMA ops)
+    logic tx_sel_rdma_req, tx_sel_rdma_rsp, tx_sel_tcp, tx_sel_bypass, tx_sel_p2p, tx_sel_host;
+    assign tx_sel_rdma_req = axis_rdma_req_tx_from_gateway.tvalid;
+    assign tx_sel_rdma_rsp = axis_rdma_rsp_tx_from_gateway.tvalid & ~tx_sel_rdma_req;
+    assign tx_sel_tcp      = axis_tcp_tx_from_gateway.tvalid & ~tx_sel_rdma_req & ~tx_sel_rdma_rsp;
+    assign tx_sel_bypass   = axis_bypass_tx_from_gateway.tvalid & ~tx_sel_rdma_req & ~tx_sel_rdma_rsp & ~tx_sel_tcp;
+    assign tx_sel_p2p      = axis_p2p_tx_from_gateway.tvalid & ~tx_sel_rdma_req & ~tx_sel_rdma_rsp & ~tx_sel_tcp & ~tx_sel_bypass;
+    assign tx_sel_host     = axis_host_tx_from_gateway.tvalid & ~tx_sel_rdma_req & ~tx_sel_rdma_rsp & ~tx_sel_tcp & ~tx_sel_bypass & ~tx_sel_p2p;
+
+    // Mux data to vIO Switch
+    assign m_axis_switch.tvalid = tx_sel_rdma_req | tx_sel_rdma_rsp | tx_sel_tcp | tx_sel_bypass | tx_sel_p2p | tx_sel_host;
+    assign m_axis_switch.tdata  = tx_sel_rdma_req ? axis_rdma_req_tx_from_gateway.tdata :
+                                  tx_sel_rdma_rsp ? axis_rdma_rsp_tx_from_gateway.tdata :
+                                  tx_sel_tcp      ? axis_tcp_tx_from_gateway.tdata :
+                                  tx_sel_bypass   ? axis_bypass_tx_from_gateway.tdata :
+                                  tx_sel_p2p      ? axis_p2p_tx_from_gateway.tdata :
+                                                    axis_host_tx_from_gateway.tdata;
+    assign m_axis_switch.tkeep  = tx_sel_rdma_req ? axis_rdma_req_tx_from_gateway.tkeep :
+                                  tx_sel_rdma_rsp ? axis_rdma_rsp_tx_from_gateway.tkeep :
+                                  tx_sel_tcp      ? axis_tcp_tx_from_gateway.tkeep :
+                                  tx_sel_bypass   ? axis_bypass_tx_from_gateway.tkeep :
+                                  tx_sel_p2p      ? axis_p2p_tx_from_gateway.tkeep :
+                                                    axis_host_tx_from_gateway.tkeep;
+    assign m_axis_switch.tlast  = tx_sel_rdma_req ? axis_rdma_req_tx_from_gateway.tlast :
+                                  tx_sel_rdma_rsp ? axis_rdma_rsp_tx_from_gateway.tlast :
+                                  tx_sel_tcp      ? axis_tcp_tx_from_gateway.tlast :
+                                  tx_sel_bypass   ? axis_bypass_tx_from_gateway.tlast :
+                                  tx_sel_p2p      ? axis_p2p_tx_from_gateway.tlast :
+                                                    axis_host_tx_from_gateway.tlast;
+    assign m_axis_switch.tid    = tx_sel_rdma_req ? axis_rdma_req_tx_from_gateway.tid :
+                                  tx_sel_rdma_rsp ? axis_rdma_rsp_tx_from_gateway.tid :
+                                  tx_sel_tcp      ? axis_tcp_tx_from_gateway.tid :
+                                  tx_sel_bypass   ? axis_bypass_tx_from_gateway.tid :
+                                  tx_sel_p2p      ? axis_p2p_tx_from_gateway.tid :
+                                                    axis_host_tx_from_gateway.tid;
+    assign m_axis_switch.tdest  = tx_sel_rdma_req ? axis_rdma_req_tx_from_gateway.tdest :
+                                  tx_sel_rdma_rsp ? axis_rdma_rsp_tx_from_gateway.tdest :
+                                  tx_sel_tcp      ? axis_tcp_tx_from_gateway.tdest :
+                                  tx_sel_bypass   ? axis_bypass_tx_from_gateway.tdest :
+                                  tx_sel_p2p      ? axis_p2p_tx_from_gateway.tdest :
+                                                    axis_host_tx_from_gateway.tdest;
+
+    // Distribute tready back to each TX path
+    assign axis_rdma_req_tx_from_gateway.tready = m_axis_switch.tready & tx_sel_rdma_req;
+    assign axis_rdma_rsp_tx_from_gateway.tready = m_axis_switch.tready & tx_sel_rdma_rsp;
+    assign axis_tcp_tx_from_gateway.tready      = m_axis_switch.tready & tx_sel_tcp;
+    assign axis_bypass_tx_from_gateway.tready   = m_axis_switch.tready & tx_sel_bypass;
+    assign axis_p2p_tx_from_gateway.tready      = m_axis_switch.tready & tx_sel_p2p;
+    assign axis_host_tx_from_gateway.tready     = m_axis_switch.tready & tx_sel_host;
+
+    // ========================================================================================
+    // gateway_recv outputs → external ports (to credits/user logic)
+    // ========================================================================================
+
+    `AXIS_ASSIGN(axis_host_rx_from_gateway, m_axis_host_rx)
+    `AXIS_ASSIGN(axis_rdma_rx_from_gateway, m_axis_rdma_rx)
+    `AXIS_ASSIGN(axis_tcp_rx_from_gateway, m_axis_tcp_rx)
+    `AXIS_ASSIGN(axis_bypass_rx_from_gateway, m_axis_bypass_rx)
+    `AXISR_ASSIGN(axis_p2p_rx_from_gateway, m_axis_p2p_rx)
+
+    // ========================================================================================
+    // Gateway Send: Attaches route_id (tdest) for vIO Switch routing
+    // ========================================================================================
+    logic gateway_send_route_valid;
+
+    gateway_send #(
+        .N_DESTS(1),
+        .ID(VFPGA_ID),
+        .N_REGIONS(N_REGIONS)
+    ) inst_gateway_send (
         .aclk(aclk),
         .aresetn(aresetn),
-        .s_req(local_sq_rd_host),
-        .m_req(local_cred_rd_host),
-        // RX data now comes from gateway_recv (via vIO Switch) instead of direct DMA
-        .s_axis(axis_host_rx_from_gateway),
-        .m_axis(axis_host_recv_int)
+        .route_ctrl(route_ctrl),
+        .route_valid(gateway_send_route_valid),
+        // Host TX
+        .s_axis_host(s_axis_host_tx),
+        .m_axis_host(axis_host_tx_from_gateway),
+        // RDMA TX REQ
+        .s_axis_rdma_req(s_axis_rdma_tx_req),
+        .m_axis_rdma_req(axis_rdma_req_tx_from_gateway),
+        // RDMA TX RSP
+        .s_axis_rdma_rsp(s_axis_rdma_tx_rsp),
+        .m_axis_rdma_rsp(axis_rdma_rsp_tx_from_gateway),
+        // TCP TX
+        .s_axis_tcp(s_axis_tcp_tx),
+        .m_axis_tcp(axis_tcp_tx_from_gateway),
+        // BYPASS TX
+        .s_axis_bypass(s_axis_bypass_tx),
+        .m_axis_bypass(axis_bypass_tx_from_gateway),
+        // P2P TX
+        .s_axis_p2p(s_axis_p2p_tx),
+        .m_axis_p2p(axis_p2p_tx_from_gateway)
     );
 
-    local_credits_host_wr #(
-        .N_DESTS(N_STRM_AXI)
-    ) inst_local_credits_host_wr (
+    // ========================================================================================
+    // Gateway Recv: Validates incoming routes from vIO Switch
+    // ========================================================================================
+
+    gateway_recv #(
+        .N_DESTS(1),
+        .ID(VFPGA_ID),
+        .N_REGIONS(N_REGIONS)
+    ) inst_gateway_recv (
         .aclk(aclk),
         .aresetn(aresetn),
-        .s_req(local_sq_wr_host),
-        .m_req(local_cred_wr_host),
-        .s_axis(axis_host_send_int),
-        // TX data now goes to gateway_send (via vIO Switch) instead of direct DMA
-        .m_axis(axis_host_tx_to_gateway)
+        .route_ctrl(route_ctrl),
+        // Host RX
+        .s_axis_host(axis_host_rx_to_gateway),
+        .m_axis_host(axis_host_rx_from_gateway),
+        // RDMA RX
+        .s_axis_rdma(axis_rdma_rx_to_gateway),
+        .m_axis_rdma(axis_rdma_rx_from_gateway),
+        // TCP RX
+        .s_axis_tcp(axis_tcp_rx_to_gateway),
+        .m_axis_tcp(axis_tcp_rx_from_gateway),
+        // BYPASS RX
+        .s_axis_bypass(axis_bypass_rx_to_gateway),
+        .m_axis_bypass(axis_bypass_rx_from_gateway),
+        // P2P RX
+        .s_axis_p2p(axis_p2p_rx_to_gateway),
+        .m_axis_p2p(axis_p2p_rx_from_gateway)
     );
 
-    // Tie off the direct DMA data paths (no longer used when routing through vIO Switch)
-    assign axis_dtu_src_int.tvalid = 1'b0;
-    assign axis_dtu_src_int.tdata  = '0;
-    assign axis_dtu_src_int.tkeep  = '0;
-    assign axis_dtu_src_int.tlast  = 1'b0;
-    assign axis_dtu_sink_int.tready = 1'b1;  // Always ready to drain any stale data
+    // ========================================================================================
+    // Gate Mem: Memory endpoint validation
+    // ========================================================================================
 
-    // ========================================================================================
-    // Memory Gateway (gate_mem): Security validation with endpoint checking
-    // ========================================================================================
-    // Requests pass through gate_mem which validates against configured memory endpoints.
-    // Only authorized requests are forwarded to the bypass interface.
     gate_mem #(
         .N_ENDPOINTS(N_ENDPOINTS)
     ) inst_gate_mem (
         .aclk(aclk),
         .aresetn(aresetn),
-        // Memory endpoint control for security validation
         .ep_ctrl(mem_ctrl),
-        // Input: unfiltered requests from credit modules
-        .s_rd_req(local_cred_rd_host),
-        .s_wr_req(local_cred_wr_host),
-        // Output: filtered requests (only authorized)
-        .m_rd_req(filtered_rd_req),
-        .m_wr_req(filtered_wr_req)
+        .s_rd_req(s_rd_req),
+        .s_wr_req(s_wr_req),
+        .m_rd_req(m_rd_req),
+        .m_wr_req(m_wr_req)
     );
-
-    // Connect filtered requests to bypass interface
-    `META_ASSIGN(filtered_rd_req, bpss_rd_req_int)
-    `META_ASSIGN(filtered_wr_req, bpss_wr_req_int)
-
-    // Connect to output (replaces the original direct assignment)
-    `META_ASSIGN(bpss_rd_req_int, bpss_rd_req)
-    `META_ASSIGN(bpss_wr_req_int, bpss_wr_req)
-
-    // ========================================================================================
-    // Gateway Send (gate_send): Routing capability for vIO Switch + Host TX data path
-    // ========================================================================================
-    // Sets the route_out signal for the vIO Switch based on route_ctrl configuration.
-    // Also handles host TX data path: attaches tdest for vIO Switch routing to HOST_RX.
-    // VFPGA_ID is passed through for hardcoded test mode routing.
-    gateway_send #(
-        .N_DESTS(N_STRM_AXI),
-        .ID(VFPGA_ID),
-        .N_REGIONS(N_ID)
-    ) inst_gateway_send (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .route_ctrl(route_ctrl),
-        .route_out(route_out),
-        // Host TX data path (vFPGA → vIO Switch → DMA)
-        .s_axis_host(axis_host_tx_to_gateway),
-        .m_axis_host(axis_host_tx_from_gateway)
-    );
-
-    // ========================================================================================
-    // Gateway Recv (gate_recv): Validates incoming routes from vIO Switch + Host RX data path
-    // ========================================================================================
-    // Validates incoming routes and handles host RX data path with bypass logic.
-    // If sender_id == my_vfid, it's my own validated request returning → BYPASS.
-    logic route_valid_out;
-    logic route_bypass_out;
-
-    gateway_recv #(
-        .N_DESTS(N_STRM_AXI),
-        .ID(VFPGA_ID),
-        .N_REGIONS(N_ID)
-    ) inst_gateway_recv (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .route_ctrl(route_ctrl),
-        .route_in(route_in),
-        .route_valid(route_valid_out),
-        .route_bypass(route_bypass_out),
-        // Host RX data path (DMA → vIO Switch → vFPGA)
-        .s_axis_host(axis_host_rx_to_gateway),
-        .m_axis_host(axis_host_rx_from_gateway)
-    );
-
-    //
-    // Remote credits
-    // 
-
-
-    //
-    // CQ
-    // 
-
-// create_ip -name ila -vendor xilinx.com -library ip -version 6.2 -module_name ila_dtu
-// set_property -dict [list CONFIG.C_NUM_OF_PROBES {12} CONFIG.C_EN_STRG_QUAL {1} CONFIG.Component_Name {ila_dtu} CONFIG.ALL_PROBE_SAME_MU_CNT {2} ] [get_ips ila_dtu]
-
-// ila_dtu inst_ila_dtu (
-//     .clk(aclk),
-//     .probe0(host_sq_int.valid),
-//     .probe1(host_sq_int.data.req_1.actv),
-//     .probe2(host_local_sq_rd.valid),
-//     .probe3(local_sq_rd.valid),
-//     .probe4(local_sq_rd_host.valid),
-//     .probe5(local_cred_rd_host.valid),
-//     .probe6(bpss_rd_req_int.valid),
-//     .probe7(host_sq_int.data.req_2.actv),
-//     .probe8(host_local_sq_wr.valid),
-//     .probe9(local_sq_wr.valid),
-//     .probe10(local_sq_wr_host.valid),
-//     .probe11(bpss_wr_req_int.valid)
-// );
 
 endmodule

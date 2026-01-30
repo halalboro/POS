@@ -55,6 +55,7 @@ import lynxTypes::*;
  * UNTRUSTED PATH (P2P):
  * - Data from other vFPGAs must be explicitly allowed by route_ctrl
  * - Validates sender_id against configured allowed sender
+ * - P2P is the ONLY path that requires validation at vFIU level
  *
  * HARDCODED_TEST_MODE: Skips validation, all routes are accepted.
  *
@@ -73,20 +74,35 @@ module gateway_recv #(
     // Routing capability configuration from host
     input logic [13:0]                           route_ctrl,
 
-    // Incoming route for validation (for network/bypass traffic)
-    input logic [13:0]                           route_in,
+    // ========================================================================
+    // Path 1: HOST RX (Host DMA → vFPGA) - BYPASS validation
+    // ========================================================================
+    AXI4SR.s                                    s_axis_host,    // From vIO Switch (tdest = route_id)
+    AXI4S.m                                     m_axis_host,    // To vFPGA (data only, no tid needed)
 
-    // Validation result outputs (for network/bypass traffic)
-    output logic                                 route_valid,
-    output logic                                 route_bypass,  // Indicates trusted bypass path
+    // ========================================================================
+    // Path 2: RDMA RX (RDMA stack → vFPGA) - BYPASS validation
+    // ========================================================================
+    AXI4SR.s                                    s_axis_rdma,    // From vIO Switch (tdest = route_id)
+    AXI4S.m                                     m_axis_rdma,    // To vFPGA (data only)
 
-    // Host RX data path (Host → vFPGA via vIO Switch)
-    AXI4SR.s                                    s_axis_host,    // From vIO Switch (with route_id)
-    AXI4S.m                                     m_axis_host     // To vFPGA (stripped tdest)
+    // ========================================================================
+    // Path 3: TCP RX (TCP stack → vFPGA) - BYPASS validation
+    // ========================================================================
+    AXI4SR.s                                    s_axis_tcp,     // From vIO Switch (tdest = route_id)
+    AXI4S.m                                     m_axis_tcp,     // To vFPGA (data only)
 
-    // NOTE: P2P data path is NOT handled here.
-    // P2P traffic flows through vio_switch routing to user_wrapper's data ports.
-    // VIU already validates P2P traffic, so no additional validation needed at vFIU level.
+    // ========================================================================
+    // Path 4: BYPASS RX (Bypass stack → vFPGA) - BYPASS validation
+    // ========================================================================
+    AXI4SR.s                                    s_axis_bypass,  // From vIO Switch (tdest = route_id)
+    AXI4S.m                                     m_axis_bypass,  // To vFPGA (data only)
+
+    // ========================================================================
+    // Path 5: P2P RX (vFPGA → vFPGA) - VALIDATED (AXI4SR with tid = sender)
+    // ========================================================================
+    AXI4SR.s                                    s_axis_p2p,     // From vIO Switch (tdest = route_id)
+    AXI4SR.m                                    m_axis_p2p      // To vFPGA (tid = sender vFPGA)
 );
 
     // ========================================================================================
@@ -94,115 +110,108 @@ module gateway_recv #(
     // ========================================================================================
     // Port IDs for identifying trusted sources (sender_id in route_id)
     // These ports are trusted infrastructure stacks - their data bypasses validation
-    localparam logic [3:0] PORT_HOST_TX   = N_REGIONS;     // DMA read response data
-    localparam logic [3:0] PORT_HOST_RX   = N_REGIONS + 1; // DMA write data (not used in recv)
-    localparam logic [3:0] PORT_RDMA      = N_REGIONS + 2; // RDMA stack
-    localparam logic [3:0] PORT_TCP       = N_REGIONS + 3; // TCP stack
-    localparam logic [3:0] PORT_BYPASS_RX = N_REGIONS + 4; // Bypass stack
+    // Must match vio_switch port indices
+    localparam logic [3:0] PORT_HOST_TX      = N_REGIONS;     // DMA read response data
+    localparam logic [3:0] PORT_HOST_RX      = N_REGIONS + 1; // DMA write data (not used in recv)
+    localparam logic [3:0] PORT_RDMA_RX      = N_REGIONS + 2; // RDMA RX (data from RDMA stack to vFPGA)
+    localparam logic [3:0] PORT_RDMA_TX      = N_REGIONS + 3; // RDMA TX REQ (not used in recv)
+    localparam logic [3:0] PORT_RDMA_TX_RSP  = N_REGIONS + 4; // RDMA TX RSP (not used in recv)
+    localparam logic [3:0] PORT_TCP          = N_REGIONS + 5; // TCP stack
+    localparam logic [3:0] PORT_BYPASS_RX    = N_REGIONS + 6; // Bypass RX (data from bypass stack to vFPGA)
+    localparam logic [3:0] PORT_BYPASS_TX    = N_REGIONS + 7; // Bypass TX REQ (not used in recv)
+    localparam logic [3:0] PORT_BYPASS_TX_RSP = N_REGIONS + 8; // Bypass TX RSP (not used in recv)
 
     // Helper function: Check if sender_id indicates a trusted source
     // Trusted sources: Host, RDMA, TCP, Bypass (sender_id >= N_REGIONS)
     function automatic logic is_trusted_sender(input logic [3:0] sender_id);
         return (sender_id == PORT_HOST_TX) ||
-               (sender_id == PORT_RDMA) ||
+               (sender_id == PORT_RDMA_RX) ||
                (sender_id == PORT_TCP) ||
                (sender_id == PORT_BYPASS_RX);
     endfunction
 
     // ========================================================================================
-    // HOST RX DATA PATH (Host → vFPGA) - ALWAYS BYPASS (Trusted Source)
+    // PATH 1: HOST RX (Host DMA → vFPGA) - BYPASS validation (Trusted Source)
     // ========================================================================================
     // Host data comes from DMA (PORT_HOST_TX) which is trusted infrastructure.
     // The original request was already validated by gate_mem, so the response
-    // data is inherently trusted and bypasses validation.
+    // data is inherently trusted. Simply pass through as AXI4S (strip tdest).
 
-    logic [3:0] host_incoming_sender;
-    logic       host_route_bypass;
-    logic       host_route_valid;
-
-    // Extract sender_id from tdest: [9:6] = sender_id
-    assign host_incoming_sender = s_axis_host.tdest[9:6];
-
-    // Host path is ALWAYS trusted (bypass = true)
-    // sender_id should be PORT_HOST_TX, but we don't need to validate it
-    assign host_route_bypass = 1'b1;
-
-`ifdef HARDCODED_TEST_MODE
-    // Skip validation for testing - all routes are valid
-    assign host_route_valid = 1'b1;
-`else
-    // Host is always valid (trusted source)
-    assign host_route_valid = 1'b1;
-`endif
-
-    // Host RX Data path: strip tdest, pass through (always valid)
-    assign m_axis_host.tvalid = s_axis_host.tvalid & host_route_valid;
+    assign m_axis_host.tvalid = s_axis_host.tvalid;
     assign m_axis_host.tdata  = s_axis_host.tdata;
     assign m_axis_host.tkeep  = s_axis_host.tkeep;
     assign m_axis_host.tlast  = s_axis_host.tlast;
-    assign s_axis_host.tready = m_axis_host.tready & host_route_valid;
+    assign s_axis_host.tready = m_axis_host.tready;
 
     // ========================================================================================
-    // NOTE: P2P DATA PATH NOT HANDLED HERE
+    // PATH 2: RDMA RX (RDMA stack → vFPGA) - BYPASS validation (Trusted Source)
     // ========================================================================================
-    // P2P traffic flows through vio_switch routing to user_wrapper's data ports.
-    // VIU already validates P2P traffic at the network boundary, so no additional
-    // validation is needed at the vFIU level.
+    // RDMA data comes from the RDMA stack which is trusted infrastructure.
+    // Pass through without validation.
+
+    assign m_axis_rdma.tvalid = s_axis_rdma.tvalid;
+    assign m_axis_rdma.tdata  = s_axis_rdma.tdata;
+    assign m_axis_rdma.tkeep  = s_axis_rdma.tkeep;
+    assign m_axis_rdma.tlast  = s_axis_rdma.tlast;
+    assign s_axis_rdma.tready = m_axis_rdma.tready;
+
+    // ========================================================================================
+    // PATH 3: TCP RX (TCP stack → vFPGA) - BYPASS validation (Trusted Source)
+    // ========================================================================================
+    // TCP data comes from the TCP stack which is trusted infrastructure.
+    // Pass through without validation.
+
+    assign m_axis_tcp.tvalid = s_axis_tcp.tvalid;
+    assign m_axis_tcp.tdata  = s_axis_tcp.tdata;
+    assign m_axis_tcp.tkeep  = s_axis_tcp.tkeep;
+    assign m_axis_tcp.tlast  = s_axis_tcp.tlast;
+    assign s_axis_tcp.tready = m_axis_tcp.tready;
+
+    // ========================================================================================
+    // PATH 4: BYPASS RX (Bypass stack → vFPGA) - BYPASS validation (Trusted Source)
+    // ========================================================================================
+    // Bypass data comes from the Bypass stack which is trusted infrastructure.
+    // Pass through without validation.
+
+    assign m_axis_bypass.tvalid = s_axis_bypass.tvalid;
+    assign m_axis_bypass.tdata  = s_axis_bypass.tdata;
+    assign m_axis_bypass.tkeep  = s_axis_bypass.tkeep;
+    assign m_axis_bypass.tlast  = s_axis_bypass.tlast;
+    assign s_axis_bypass.tready = m_axis_bypass.tready;
+
+    // ========================================================================================
+    // PATH 5: P2P RX (vFPGA → vFPGA) - VALIDATED (Untrusted Source)
+    // ========================================================================================
+    // P2P data comes from other vFPGAs and MUST be validated against route_ctrl.
+    // This is the ONLY path that requires validation - all other paths (Host, RDMA, TCP,
+    // Bypass) are trusted infrastructure and bypass validation.
     //
-    // For P2P:
-    // - TX: vFPGA → gateway_send → vio_switch → target_vFPGA
-    // - RX: vio_switch → user_wrapper (bypasses vFIU)
+    // Validation checks:
+    // - sender_id (from tdest[9:6]) must match allowed sender in route_ctrl
+    // - OR route_ctrl allows any sender (route_ctrl[9:6] == 0)
 
-    // ========================================================================================
-    // GENERAL ROUTE VALIDATION (for route_in signal from vIO Switch)
-    // ========================================================================================
-    // This validates the route_in signal which carries routing info for all paths.
-    // The validation logic is:
-    // - TRUSTED (sender_id >= N_REGIONS): BYPASS - always valid
-    // - UNTRUSTED (sender_id < N_REGIONS): VALIDATE against route_ctrl
+    logic [3:0] p2p_incoming_sender;
+    logic       p2p_route_valid;
 
-    logic [3:0] allowed_sender_reg;  // Allowed sender_id from route_ctrl
-    logic [3:0] incoming_sender;     // Sender_id from incoming route
-    logic       is_trusted;          // Is the sender a trusted infrastructure port?
-
-    // Store allowed sender from route_ctrl and validate incoming routes
-    always_ff @(posedge aclk) begin
-        if (~aresetn) begin
-            allowed_sender_reg <= '0;
-            incoming_sender <= '0;
-            route_valid <= 1'b0;
-            route_bypass <= 1'b0;
-            is_trusted <= 1'b0;
-        end else begin
-            // Extract allowed sender from route_ctrl: [9:6] = sender_id
-            allowed_sender_reg <= route_ctrl[9:6];
-
-            // Extract sender from incoming route: [9:6] = sender_id
-            incoming_sender <= route_in[9:6];
-
-            // Check if sender is trusted infrastructure (Host, RDMA, TCP, Bypass)
-            is_trusted <= is_trusted_sender(route_in[9:6]);
-
-            // Bypass check: trusted sources always bypass validation
-            route_bypass <= is_trusted_sender(route_in[9:6]);
+    // Extract sender_id from tdest: [9:6] = sender_id
+    assign p2p_incoming_sender = s_axis_p2p.tdest[9:6];
 
 `ifdef HARDCODED_TEST_MODE
-            // Skip validation for testing - all routes are valid
-            route_valid <= 1'b1;
+    // Skip validation for testing - all P2P routes are valid
+    assign p2p_route_valid = 1'b1;
 `else
-            // Validation logic:
-            // - Trusted sources (Host, RDMA, TCP, Bypass): ALWAYS valid
-            // - P2P (sender_id < N_REGIONS): validate against route_ctrl
-            if (is_trusted_sender(route_in[9:6])) begin
-                // Trusted source - bypass validation
-                route_valid <= 1'b1;
-            end else begin
-                // Untrusted source (P2P) - validate
-                route_valid <= (route_in[9:6] == route_ctrl[9:6]) ||  // Sender matches allowed
-                               (route_ctrl[9:6] == 4'b0000);          // Any sender allowed
-            end
+    // P2P validation: sender must match route_ctrl or any sender allowed
+    assign p2p_route_valid = (p2p_incoming_sender == route_ctrl[9:6]) ||  // Sender matches allowed
+                             (route_ctrl[9:6] == 4'b0000);                 // Any sender allowed
 `endif
-        end
-    end
+
+    // P2P RX Data path: pass through only if valid (AXI4SR with tid = sender vFPGA)
+    assign m_axis_p2p.tvalid = s_axis_p2p.tvalid & p2p_route_valid;
+    assign m_axis_p2p.tdata  = s_axis_p2p.tdata;
+    assign m_axis_p2p.tkeep  = s_axis_p2p.tkeep;
+    assign m_axis_p2p.tlast  = s_axis_p2p.tlast;
+    assign m_axis_p2p.tid    = p2p_incoming_sender;  // Pass sender vFPGA ID as tid to user
+    assign m_axis_p2p.tdest  = s_axis_p2p.tdest;     // Pass through tdest
+    assign s_axis_p2p.tready = m_axis_p2p.tready & p2p_route_valid;
 
 endmodule

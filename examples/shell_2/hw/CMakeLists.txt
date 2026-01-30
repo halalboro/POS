@@ -41,6 +41,7 @@ set(N_STRM_AXI 2)
 set(EN_RDMA 1)
 
 # Number of vFPGAs (user applications)
+# P2P (vFPGA-to-vFPGA communication) is automatically enabled when N_REGIONS > 1
 set(N_REGIONS 2)
 
 # Build with optimization, since timing closure with RDMA can be difficult
@@ -51,8 +52,8 @@ validation_checks_hw()
 
 # Load user applications for all 2 vFPGAs
 load_apps (
-    VFPGA_C0_0 "src"
-    VFPGA_C0_1 "src"
+    VFPGA_C0_0 "src_1"
+    VFPGA_C0_1 "src_2"
 )
 
 # Create the hardware project

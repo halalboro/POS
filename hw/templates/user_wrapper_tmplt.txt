@@ -95,7 +95,7 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) output logic                                axis_host_src_tlast,
     (* io_buffer_type = "none" *) input  logic                                axis_host_src_tready,
     (* io_buffer_type = "none" *) output logic                                axis_host_src_tvalid,
-  
+
 {% endif %}
 {% if cnfg.en_mem %}
     {% for i in range(0, cnfg.n_card_axi) %}
@@ -230,6 +230,24 @@ module design_user_wrapper_{{ c_reg }} (
     (* io_buffer_type = "none" *) output logic                                axis_bypass_src_tlast,
     (* io_buffer_type = "none" *) input  logic                                axis_bypass_src_tready,
     (* io_buffer_type = "none" *) output logic                                axis_bypass_src_tvalid,
+
+{% if cnfg.en_p2p %}
+    // AXI4SR P2P SINK (RX: another vFPGA -> this vFPGA) - tid = sender vFPGA ID
+    (* io_buffer_type = "none" *) input  logic[AXI_NET_BITS-1:0]              axis_p2p_sink_tdata,
+    (* io_buffer_type = "none" *) input  logic[AXI_NET_BITS/8-1:0]            axis_p2p_sink_tkeep,
+    (* io_buffer_type = "none" *) input  logic                                axis_p2p_sink_tlast,
+    (* io_buffer_type = "none" *) output logic                                axis_p2p_sink_tready,
+    (* io_buffer_type = "none" *) input  logic                                axis_p2p_sink_tvalid,
+    (* io_buffer_type = "none" *) input  logic[PID_BITS-1:0]                  axis_p2p_sink_tid,
+
+    // AXI4SR P2P SOURCE (TX: this vFPGA -> another vFPGA) - tid for identification
+    (* io_buffer_type = "none" *) output logic[AXI_NET_BITS-1:0]              axis_p2p_src_tdata,
+    (* io_buffer_type = "none" *) output logic[AXI_NET_BITS/8-1:0]            axis_p2p_src_tkeep,
+    (* io_buffer_type = "none" *) output logic                                axis_p2p_src_tlast,
+    (* io_buffer_type = "none" *) input  logic                                axis_p2p_src_tready,
+    (* io_buffer_type = "none" *) output logic                                axis_p2p_src_tvalid,
+    (* io_buffer_type = "none" *) output logic[PID_BITS-1:0]                  axis_p2p_src_tid,
+{% endif %}
 
     // BSCAN
     (* io_buffer_type = "none" *) input  logic                                S_BSCAN_drck,
@@ -556,6 +574,25 @@ module design_user_wrapper_{{ c_reg }} (
     assign axis_bypass_src_tlast                = axis_bypass_src.tlast;
     assign axis_bypass_src.tready               = axis_bypass_src_tready;
 
+{% if cnfg.en_p2p %}
+    // P2P streams (AXI4SR with tid - direct path, no decoupler/ccross)
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_p2p_recv ();
+    AXI4SR #(.AXI4S_DATA_BITS(AXI_NET_BITS)) axis_p2p_send ();
+
+    assign axis_p2p_recv.tvalid                 = axis_p2p_sink_tvalid;
+    assign axis_p2p_recv.tdata                  = axis_p2p_sink_tdata;
+    assign axis_p2p_recv.tkeep                  = axis_p2p_sink_tkeep;
+    assign axis_p2p_recv.tlast                  = axis_p2p_sink_tlast;
+    assign axis_p2p_recv.tid                    = axis_p2p_sink_tid;
+    assign axis_p2p_sink_tready                 = axis_p2p_recv.tready;
+
+    assign axis_p2p_src_tvalid                  = axis_p2p_send.tvalid;
+    assign axis_p2p_src_tdata                   = axis_p2p_send.tdata;
+    assign axis_p2p_src_tkeep                   = axis_p2p_send.tkeep;
+    assign axis_p2p_src_tlast                   = axis_p2p_send.tlast;
+    assign axis_p2p_src_tid                     = axis_p2p_send.tid;
+    assign axis_p2p_send.tready                 = axis_p2p_src_tready;
+{% endif %}
 
 {% if cnfg.en_user_reg %}
     // 
@@ -1147,8 +1184,37 @@ module design_user_wrapper_{{ c_reg }} (
 {% endif %}
 
     //
+    // Bypass credits
+    //
+    // Credit-based flow control for Bypass path.
+    // Prevents region stalls from propagating to the network stack.
+    //
+    metaIntf #(.STYPE(req_t)) bypass_rq_rd_cred ();
+    metaIntf #(.STYPE(req_t)) bypass_rq_wr_cred ();
+
+    // Bypass RX credits (incoming write requests from network)
+    // Controls write request flow based on data transfer completion
+    bypass_credits_rd inst_bypass_credits_rd (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(bypass_rq_wr_int),
+        .m_req(bypass_rq_wr_cred),
+        .xfer(axis_bypass_sink.tvalid && axis_bypass_sink.tready)
+    );
+
+    // Bypass TX credits (outgoing read requests for DMA)
+    // Controls read request flow based on data transmission
+    bypass_credits_wr inst_bypass_credits_wr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+        .s_req(bypass_rq_rd_int),
+        .m_req(bypass_rq_rd_cred),
+        .xfer(axis_bypass_src.tvalid && axis_bypass_src.tready)
+    );
+
+    //
     // CQ
-    // 
+    //
 
     metaIntf #(.STYPE(ack_t)) user_cq_rd_int ();
     metaIntf #(.STYPE(ack_t)) user_cq_wr_int ();
@@ -1216,13 +1282,18 @@ module design_user_wrapper_{{ c_reg }} (
         .axis_tcp_recv(axis_tcp_sink),
         .axis_tcp_send(axis_tcp_src),
     {% endif %}
-        // Bypass control (always present)
+        // Bypass control (always present) - with credit flow control
         .bypass_sq(bypass_sq_int),
-        .bypass_rq_rd(bypass_rq_rd_int),
-        .bypass_rq_wr(bypass_rq_wr_int),
+        .bypass_rq_rd(bypass_rq_rd_cred),
+        .bypass_rq_wr(bypass_rq_wr_cred),
         // Bypass streams (always present)
         .axis_bypass_recv(axis_bypass_sink),
         .axis_bypass_send(axis_bypass_src),
+{% if cnfg.en_p2p %}
+        // P2P streams (AXI4SR with tid)
+        .axis_p2p_recv(axis_p2p_recv),
+        .axis_p2p_send(axis_p2p_send),
+{% endif %}
         .aclk(aclk),
 	    .aresetn(aresetn)
 	);

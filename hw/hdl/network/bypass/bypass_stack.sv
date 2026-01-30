@@ -50,19 +50,19 @@ module bypass_stack (
     input  logic [13:0]         rx_route_id,
 
     // Control (used to capture buffer base address)
-    metaIntf.s                  s_rdma_qp_interface,
-    metaIntf.s                  s_rdma_conn_interface,
+    metaIntf.s                  s_bypass_qp_interface,
+    metaIntf.s                  s_bypass_conn_interface,
 
     // User command
-    metaIntf.s                  s_rdma_sq,
-    metaIntf.m                  m_rdma_ack,
+    metaIntf.s                  s_bypass_sq,
+    metaIntf.m                  m_bypass_ack,
 
     // Memory
-    metaIntf.m                  m_rdma_rd_req,
-    metaIntf.m                  m_rdma_wr_req,
-    AXI4S.s                     s_axis_rdma_rd_req,
-    AXI4S.s                     s_axis_rdma_rd_rsp,
-    AXI4S.m                     m_axis_rdma_wr,
+    metaIntf.m                  m_bypass_rd_req,
+    metaIntf.m                  m_bypass_wr_req,
+    AXI4S.s                     s_axis_bypass_rd_req,
+    AXI4S.s                     s_axis_bypass_rd_rsp,
+    AXI4S.m                     m_axis_bypass_wr,
 
     // Debug
     output logic                ibv_rx_pkg_count_valid,
@@ -88,38 +88,38 @@ module bypass_stack (
             local_pid <= '0;
             local_vfid <= '0;
         end else begin
-            if (s_rdma_qp_interface.valid && s_rdma_qp_interface.ready) begin
-                local_buffer_base <= s_rdma_qp_interface.data.vaddr;
+            if (s_bypass_qp_interface.valid && s_bypass_qp_interface.ready) begin
+                local_buffer_base <= s_bypass_qp_interface.data.vaddr;
                 // Extract PID/vFID from QP number
-                local_vfid <= s_rdma_qp_interface.data.qp_num[PID_BITS +: DEST_BITS];
-                local_pid <= s_rdma_qp_interface.data.qp_num[0 +: PID_BITS];
+                local_vfid <= s_bypass_qp_interface.data.qp_num[PID_BITS +: DEST_BITS];
+                local_pid <= s_bypass_qp_interface.data.qp_num[0 +: PID_BITS];
             end
         end
     end
 
-    assign s_rdma_qp_interface.ready = 1'b1;
-    assign s_rdma_conn_interface.ready = 1'b1;
+    assign s_bypass_qp_interface.ready = 1'b1;
+    assign s_bypass_conn_interface.ready = 1'b1;
 
     // ========== TX PATH - PURE PASSTHROUGH ==========
     // Direct passthrough from SQ to DMA read request
-    assign m_rdma_rd_req.valid = s_rdma_sq.valid;
-    assign s_rdma_sq.ready = m_rdma_rd_req.ready;
+    assign m_bypass_rd_req.valid = s_bypass_sq.valid;
+    assign s_bypass_sq.ready = m_bypass_rd_req.ready;
 
-    assign m_rdma_rd_req.data.opcode = s_rdma_sq.data.req_1.opcode;
-    assign m_rdma_rd_req.data.mode = RDMA_MODE_RAW;
-    assign m_rdma_rd_req.data.rdma = 1'b1;
-    assign m_rdma_rd_req.data.remote = 1'b0;
-    assign m_rdma_rd_req.data.pid = s_rdma_sq.data.req_1.pid;
-    assign m_rdma_rd_req.data.vfid = s_rdma_sq.data.req_1.vfid;
-    assign m_rdma_rd_req.data.last = s_rdma_sq.data.req_1.last;
-    assign m_rdma_rd_req.data.vaddr = s_rdma_sq.data.req_1.vaddr;
-    assign m_rdma_rd_req.data.dest = s_rdma_sq.data.req_1.dest;
-    assign m_rdma_rd_req.data.strm = s_rdma_sq.data.req_1.strm;
-    assign m_rdma_rd_req.data.len = s_rdma_sq.data.req_1.len;
-    assign m_rdma_rd_req.data.actv = 1'b0;
-    assign m_rdma_rd_req.data.host = s_rdma_sq.data.req_1.host;
-    assign m_rdma_rd_req.data.offs = s_rdma_sq.data.req_1.offs;
-    assign m_rdma_rd_req.data.rsrvd = '0;
+    assign m_bypass_rd_req.data.opcode = s_bypass_sq.data.req_1.opcode;
+    assign m_bypass_rd_req.data.mode = RDMA_MODE_RAW;
+    assign m_bypass_rd_req.data.rdma = 1'b1;
+    assign m_bypass_rd_req.data.remote = 1'b0;
+    assign m_bypass_rd_req.data.pid = s_bypass_sq.data.req_1.pid;
+    assign m_bypass_rd_req.data.vfid = s_bypass_sq.data.req_1.vfid;
+    assign m_bypass_rd_req.data.last = s_bypass_sq.data.req_1.last;
+    assign m_bypass_rd_req.data.vaddr = s_bypass_sq.data.req_1.vaddr;
+    assign m_bypass_rd_req.data.dest = s_bypass_sq.data.req_1.dest;
+    assign m_bypass_rd_req.data.strm = s_bypass_sq.data.req_1.strm;
+    assign m_bypass_rd_req.data.len = s_bypass_sq.data.req_1.len;
+    assign m_bypass_rd_req.data.actv = 1'b0;
+    assign m_bypass_rd_req.data.host = s_bypass_sq.data.req_1.host;
+    assign m_bypass_rd_req.data.offs = s_bypass_sq.data.req_1.offs;
+    assign m_bypass_rd_req.data.rsrvd = '0;
 
     // ========== TX PATH WITH FIFO BUFFER ==========
     //
@@ -134,11 +134,11 @@ module bypass_stack (
     axis_data_fifo_512_cc_tx tx_buffer_fifo (
         .s_axis_aresetn(nresetn),
         .s_axis_aclk(nclk),
-        .s_axis_tvalid(s_axis_rdma_rd_rsp.tvalid),
-        .s_axis_tready(s_axis_rdma_rd_rsp.tready),
-        .s_axis_tdata(s_axis_rdma_rd_rsp.tdata),
-        .s_axis_tkeep(s_axis_rdma_rd_rsp.tkeep),
-        .s_axis_tlast(s_axis_rdma_rd_rsp.tlast),
+        .s_axis_tvalid(s_axis_bypass_rd_rsp.tvalid),
+        .s_axis_tready(s_axis_bypass_rd_rsp.tready),
+        .s_axis_tdata(s_axis_bypass_rd_rsp.tdata),
+        .s_axis_tkeep(s_axis_bypass_rd_rsp.tkeep),
+        .s_axis_tlast(s_axis_bypass_rd_rsp.tlast),
         .m_axis_tvalid(m_axis_tx.tvalid),
         .m_axis_tready(m_axis_tx.tready),
         .m_axis_tdata(m_axis_tx.tdata),
@@ -303,7 +303,7 @@ module bypass_stack (
 
                 RX_SEND_DESC: begin
                     // Send descriptor, wait for downstream acceptance
-                    if (m_rdma_wr_req.valid && m_rdma_wr_req.ready) begin
+                    if (m_bypass_wr_req.valid && m_bypass_wr_req.ready) begin
                         rx_state <= RX_SEND_DATA;
                     end
                 end
@@ -330,39 +330,39 @@ module bypass_stack (
     assign len_fifo_pop = (rx_state == RX_WAIT_PKT) && !len_fifo_empty;
 
     // ========== RX DESCRIPTOR GENERATION ==========
-    assign m_rdma_wr_req.valid = (rx_state == RX_SEND_DESC);
+    assign m_bypass_wr_req.valid = (rx_state == RX_SEND_DESC);
 
-    assign m_rdma_wr_req.data.opcode = RC_RDMA_WRITE_ONLY;
-    assign m_rdma_wr_req.data.mode = RDMA_MODE_RAW;
-    assign m_rdma_wr_req.data.rdma = 1'b1;
-    assign m_rdma_wr_req.data.remote = 1'b0;
-    assign m_rdma_wr_req.data.pid = local_pid;
-    assign m_rdma_wr_req.data.vfid = local_vfid;
-    assign m_rdma_wr_req.data.vaddr = local_buffer_base + rx_buffer_offset;
-    assign m_rdma_wr_req.data.last = 1'b1;
-    assign m_rdma_wr_req.data.dest = 4'b0;
-    assign m_rdma_wr_req.data.strm = STRM_HOST;
-    assign m_rdma_wr_req.data.len = rx_current_len;  // Measured packet length
-    assign m_rdma_wr_req.data.actv = 1'b0;
-    assign m_rdma_wr_req.data.host = 1'b1;
-    assign m_rdma_wr_req.data.offs = 6'b0;
-    assign m_rdma_wr_req.data.route_id = rx_route_id;
-    assign m_rdma_wr_req.data.rsrvd = '0;
+    assign m_bypass_wr_req.data.opcode = RC_RDMA_WRITE_ONLY;
+    assign m_bypass_wr_req.data.mode = RDMA_MODE_RAW;
+    assign m_bypass_wr_req.data.rdma = 1'b1;
+    assign m_bypass_wr_req.data.remote = 1'b0;
+    assign m_bypass_wr_req.data.pid = local_pid;
+    assign m_bypass_wr_req.data.vfid = local_vfid;
+    assign m_bypass_wr_req.data.vaddr = local_buffer_base + rx_buffer_offset;
+    assign m_bypass_wr_req.data.last = 1'b1;
+    assign m_bypass_wr_req.data.dest = 4'b0;
+    assign m_bypass_wr_req.data.strm = STRM_HOST;
+    assign m_bypass_wr_req.data.len = rx_current_len;  // Measured packet length
+    assign m_bypass_wr_req.data.actv = 1'b0;
+    assign m_bypass_wr_req.data.host = 1'b1;
+    assign m_bypass_wr_req.data.offs = 6'b0;
+    assign m_bypass_wr_req.data.route_id = rx_route_id;
+    assign m_bypass_wr_req.data.rsrvd = '0;
 
     // ========== RX DATA PATH ==========
     // Only forward data when in RX_SEND_DATA state
-    assign m_axis_rdma_wr.tvalid = rx_data_fifo_out.tvalid && (rx_state == RX_SEND_DATA);
-    assign m_axis_rdma_wr.tdata = rx_data_fifo_out.tdata;
-    assign m_axis_rdma_wr.tkeep = rx_data_fifo_out.tkeep;
-    assign m_axis_rdma_wr.tlast = rx_data_fifo_out.tlast;
+    assign m_axis_bypass_wr.tvalid = rx_data_fifo_out.tvalid && (rx_state == RX_SEND_DATA);
+    assign m_axis_bypass_wr.tdata = rx_data_fifo_out.tdata;
+    assign m_axis_bypass_wr.tkeep = rx_data_fifo_out.tkeep;
+    assign m_axis_bypass_wr.tlast = rx_data_fifo_out.tlast;
 
     // Only drain data FIFO in RX_SEND_DATA state
-    assign rx_data_fifo_out.tready = (rx_state == RX_SEND_DATA) && m_axis_rdma_wr.tready;
+    assign rx_data_fifo_out.tready = (rx_state == RX_SEND_DATA) && m_axis_bypass_wr.tready;
 
     // ========== TIE OFF UNUSED ==========
-    assign m_rdma_ack.valid = 1'b0;
-    assign m_rdma_ack.data = '0;
-    assign s_axis_rdma_rd_req.tready = 1'b0;
+    assign m_bypass_ack.valid = 1'b0;
+    assign m_bypass_ack.data = '0;
+    assign s_axis_bypass_rd_req.tready = 1'b0;
 
     // ========== STATISTICS COUNTERS ==========
     logic [31:0] tx_packet_count;
@@ -379,7 +379,7 @@ module bypass_stack (
             end
 
             // Count RX packets (data written to memory)
-            if (m_axis_rdma_wr.tvalid && m_axis_rdma_wr.tready && m_axis_rdma_wr.tlast) begin
+            if (m_axis_bypass_wr.tvalid && m_axis_bypass_wr.tready && m_axis_bypass_wr.tlast) begin
                 rx_packet_count <= rx_packet_count + 1;
             end
         end

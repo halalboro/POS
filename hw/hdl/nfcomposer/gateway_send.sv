@@ -32,21 +32,30 @@ import lynxTypes::*;
 `include "axi_macros.svh"
 `include "lynx_macros.svh"
 
-// HARDCODED_TEST_MODE: When defined, route_out is hardcoded for testing
-// instead of being set by route_ctrl from host. Remove for production.
+// HARDCODED_TEST_MODE: When defined, skip capability validation for testing.
+// All outgoing routes are considered valid. Remove for production.
 `define HARDCODED_TEST_MODE
 
 /**
- * Gateway Send Module - Outgoing Route Attachment for All 5 Paths
+ * vFIU Gateway Send Module - Outgoing Route Validation & Attachment for All 6 Paths
  *
- * This module attaches route_id (as tdest) to ALL outgoing data for vIO Switch routing.
- * It handles ALL 5 outgoing data paths:
+ * This module validates and attaches route_id (as tdest) to ALL outgoing data
+ * for vIO Switch routing. It handles ALL 6 outgoing data paths:
  *
- * 1. HOST TX: vFPGA → Host DMA (receiver = PORT_HOST_RX)
- * 2. RDMA TX: vFPGA → RDMA stack (receiver = PORT_RDMA)
- * 3. TCP TX:  vFPGA → TCP stack (receiver = PORT_TCP)
- * 4. BYPASS TX: vFPGA → Bypass stack (receiver = PORT_BYPASS_TX)
- * 5. P2P TX: vFPGA → Another vFPGA (receiver = target vFPGA ID)
+ * 1. HOST TX:       vFPGA → Host DMA      - BYPASS validation (trusted, route to HOST_RX)
+ * 2. RDMA TX REQ:   vFPGA → RDMA stack    - VALIDATE then route to PORT_RDMA_TX_REQ
+ * 3. RDMA TX RSP:   vFPGA → RDMA stack    - VALIDATE then route to PORT_RDMA_TX_RSP
+ * 4. TCP TX:        vFPGA → TCP stack     - VALIDATE then route to PORT_TCP
+ * 5. BYPASS TX:     vFPGA → Bypass stack  - VALIDATE then route to PORT_BYPASS_TX
+ * 6. P2P TX:        vFPGA → Another vFPGA - VALIDATE then route to target vFPGA
+ *
+ * TRUSTED PATH (Host TX):
+ * - Data going to Host DMA is trusted (request already validated by gate_mem)
+ * - Bypasses validation, just attaches route_id for HOST_RX port
+ *
+ * VALIDATED PATHS (RDMA REQ/RSP, TCP, Bypass, P2P):
+ * - Must be validated against route_ctrl before sending
+ * - Validation checks receiver_id against allowed destinations in route_ctrl
  *
  * Route ID format (14 bits):
  *   [13:10] reserved
@@ -54,22 +63,16 @@ import lynxTypes::*;
  *   [5:2]   receiver_id (destination vFPGA or port)
  *   [1:0]   flags
  *
- * For infrastructure paths (Host, RDMA, TCP, Bypass):
- *   - sender_id = this vFPGA's ID
- *   - receiver_id = corresponding infrastructure port
+ * HARDCODED_TEST_MODE: Skips validation, all routes are accepted.
  *
- * For P2P path:
- *   - sender_id = this vFPGA's ID
- *   - receiver_id = target vFPGA ID (from user)
- *
- * HARDCODED_TEST_MODE for shell_2:
- *   - vFPGA 0 (ID=0): route_out = 14'h0004 (send to vFPGA 1)
- *   - vFPGA 1 (ID=1): route_out = 14'h0000 (send to network/RDMA TX)
+ * Naming convention:
+ *   - VIU (network level): gateway_tx (outgoing), gateway_rx (incoming)
+ *   - vFIU (memory level): gateway_send, gateway_recv
  */
 module gateway_send #(
     parameter N_DESTS = 1,
-    parameter ID = 0,              // vFPGA ID for hardcoded test mode
-    parameter integer N_REGIONS = 2  // Number of vFPGA regions (for port calculation)
+    parameter ID = 0,                // vFPGA ID (sender_id in route)
+    parameter integer N_REGIONS = 2  // Number of vFPGA regions
 ) (
     input  logic                                aclk,
     input  logic                                aresetn,
@@ -77,23 +80,60 @@ module gateway_send #(
     // Routing capability configuration from host
     input  logic [13:0]                         route_ctrl,
 
-    // Route output to vIO Switch (for network/bypass traffic)
-    output logic [13:0]                         route_out,
+    // Validation result outputs
+    output logic                                route_valid,
 
-    // Host TX data path (vFPGA → Host via vIO Switch)
-    AXI4S.s                                     s_axis_host,    // From vFPGA (write data to host)
-    AXI4SR.m                                    m_axis_host     // To vIO Switch (with tdest for routing)
+    // ========================================================================
+    // Path 1: HOST TX (vFPGA → Host DMA) - BYPASS validation
+    // ========================================================================
+    AXI4S.s                                     s_axis_host,    // From vFPGA (data only)
+    AXI4SR.m                                    m_axis_host,    // To vIO Switch (tdest = route_id)
+
+    // ========================================================================
+    // Path 2: RDMA TX REQ (vFPGA → RDMA stack read requests) - VALIDATED
+    // ========================================================================
+    AXI4S.s                                     s_axis_rdma_req,    // From vFPGA (data only)
+    AXI4SR.m                                    m_axis_rdma_req,    // To vIO Switch (tdest = route_id)
+
+    // ========================================================================
+    // Path 3: RDMA TX RSP (vFPGA → RDMA stack read responses) - VALIDATED
+    // ========================================================================
+    AXI4S.s                                     s_axis_rdma_rsp,    // From vFPGA (data only)
+    AXI4SR.m                                    m_axis_rdma_rsp,    // To vIO Switch (tdest = route_id)
+
+    // ========================================================================
+    // Path 4: TCP TX (vFPGA → TCP stack) - VALIDATED
+    // ========================================================================
+    AXI4S.s                                     s_axis_tcp,     // From vFPGA (data only)
+    AXI4SR.m                                    m_axis_tcp,     // To vIO Switch (tdest = route_id)
+
+    // ========================================================================
+    // Path 5: BYPASS TX (vFPGA → Bypass stack) - VALIDATED
+    // ========================================================================
+    AXI4S.s                                     s_axis_bypass,  // From vFPGA (data only)
+    AXI4SR.m                                    m_axis_bypass,  // To vIO Switch (tdest = route_id)
+
+    // ========================================================================
+    // Path 6: P2P TX (vFPGA → Another vFPGA) - VALIDATED (AXI4SR with tid)
+    // ========================================================================
+    AXI4SR.s                                    s_axis_p2p,     // From vFPGA (AXI4SR with tid)
+    AXI4SR.m                                    m_axis_p2p      // To vIO Switch (tdest = route_id)
 );
 
     // ========================================================================================
     // PORT ASSIGNMENTS
     // ========================================================================================
     // Infrastructure port IDs (receiver_id in route_id)
-    localparam logic [3:0] PORT_HOST_TX   = N_REGIONS;     // DMA read response (not used in send)
-    localparam logic [3:0] PORT_HOST_RX   = N_REGIONS + 1; // DMA write data destination
-    localparam logic [3:0] PORT_RDMA      = N_REGIONS + 2; // RDMA stack
-    localparam logic [3:0] PORT_TCP       = N_REGIONS + 3; // TCP stack
-    localparam logic [3:0] PORT_BYPASS_TX = N_REGIONS + 4; // Bypass stack
+    // Must match vio_switch port indices for correct routing
+    localparam logic [3:0] PORT_HOST_TX      = N_REGIONS;     // DMA read response (not used in send)
+    localparam logic [3:0] PORT_HOST_RX      = N_REGIONS + 1; // DMA write data destination
+    localparam logic [3:0] PORT_RDMA_RX      = N_REGIONS + 2; // RDMA RX (not used in send - for recv only)
+    localparam logic [3:0] PORT_RDMA_TX_REQ  = N_REGIONS + 3; // RDMA TX REQ (read requests to stack)
+    localparam logic [3:0] PORT_RDMA_TX_RSP  = N_REGIONS + 4; // RDMA TX RSP (read responses to stack)
+    localparam logic [3:0] PORT_TCP          = N_REGIONS + 5; // TCP stack
+    localparam logic [3:0] PORT_BYPASS_RX    = N_REGIONS + 6; // Bypass RX (not used in send)
+    localparam logic [3:0] PORT_BYPASS_TX    = N_REGIONS + 7; // Bypass TX REQ
+    localparam logic [3:0] PORT_BYPASS_TX_RSP = N_REGIONS + 8; // Bypass TX RSP (unused - merged with REQ)
 
     // Helper function: Build route_id with this vFPGA as sender
     // Route format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
@@ -101,79 +141,175 @@ module gateway_send #(
         return {4'b0, ID[3:0], receiver_id, 2'b0};
     endfunction
 
+    // Helper function: Check if receiver_id is a valid infrastructure port
+    function automatic logic is_infra_port(input logic [3:0] receiver_id);
+        return (receiver_id == PORT_HOST_RX) ||
+               (receiver_id == PORT_RDMA_TX_REQ) ||
+               (receiver_id == PORT_RDMA_TX_RSP) ||
+               (receiver_id == PORT_TCP) ||
+               (receiver_id == PORT_BYPASS_TX);
+    endfunction
+
+    // Helper function: Check if receiver_id is a valid vFPGA (for P2P)
+    function automatic logic is_valid_vfpga(input logic [3:0] receiver_id);
+        return (receiver_id < N_REGIONS) && (receiver_id != ID);
+    endfunction
+
     // ========================================================================================
-    // HOST TX DATA PATH (vFPGA → Host DMA)
+    // PATH 1: HOST TX (vFPGA → Host DMA) - BYPASS validation
     // ========================================================================================
-    // Attach tdest for vIO Switch routing to HOST_RX port.
-    // The data itself passes through since the request was already validated by gate_mem.
-    // tdest format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
+    // Host data goes to DMA which is trusted infrastructure.
+    // The request was already validated by gate_mem, so the data is inherently trusted.
+    // We just attach the route_id for HOST_RX port.
 
     assign m_axis_host.tvalid = s_axis_host.tvalid;
     assign m_axis_host.tdata  = s_axis_host.tdata;
     assign m_axis_host.tkeep  = s_axis_host.tkeep;
     assign m_axis_host.tlast  = s_axis_host.tlast;
     assign m_axis_host.tid    = ID[PID_BITS-1:0];  // Source vFPGA ID
-    // Route to HOST_RX: sender_id = this vFPGA, receiver_id = HOST_RX port
-    assign m_axis_host.tdest  = build_route_id(PORT_HOST_RX);
+    assign m_axis_host.tdest  = build_route_id(PORT_HOST_RX);  // Route to HOST_RX
     assign s_axis_host.tready = m_axis_host.tready;
 
     // ========================================================================================
-    // ROUTE_OUT FOR OTHER PATHS (RDMA, TCP, Bypass, P2P)
+    // PATH 2: RDMA TX REQ (vFPGA → RDMA stack read requests) - VALIDATED
     // ========================================================================================
-    // For paths other than Host TX (which has its own data interface above), the route_out
-    // signal is used by the TX mux in dynamic_top to set tdest for outgoing data.
-    //
-    // In HARDCODED_TEST_MODE, route_out is set based on vFPGA ID for testing.
-    // In production, route_out comes from route_ctrl configured by the host.
-    //
-    // The actual route_id attachment for RDMA/TCP/Bypass/P2P is done in the TX mux
-    // in dynamic_top (gen_vfiu_connections block), which uses this route_out value.
+    // RDMA REQ data must be validated - check if this vFPGA is allowed to send to RDMA.
 
-    // ========================================================================================
-    // ROUTING CAPABILITY LOGIC (for network/bypass traffic)
-    // ========================================================================================
-    // With single port design, route_out directly comes from route_ctrl
-    // The route_ctrl is set by the host/control plane to define allowed routing
+    logic rdma_req_route_valid;
 
 `ifdef HARDCODED_TEST_MODE
-    // Hardcoded route_out for shell_2 testing:
-    // - vFPGA 0: send to vFPGA 1 (P2P loopback test)
-    // - vFPGA 1: send to RDMA TX REQ port (for network transmission via VIU)
-    //
-    // Route ID format: [13:10]=reserved, [9:6]=sender_id, [5:2]=receiver_id, [1:0]=flags
-    //
-    // Port assignments for vio_switch_2 (N_REGIONS=2):
-    //   Port 0: vFPGA 0, Port 1: vFPGA 1
-    //   Port 2: HOST_TX, Port 3: HOST_RX
-    //   Port 4: RDMA_RX, Port 5: RDMA_TX_REQ, Port 6: RDMA_TX_RSP
-    //   Port 7: TCP, Port 8: BYPASS_RX, Port 9: BYPASS_TX_REQ, Port 10: BYPASS_TX_RSP
-    //
-    // vFPGA 0 -> vFPGA 1: sender=0, receiver=1 => 14'b0000_0000_0001_00 = 14'h0004
-    // vFPGA 1 -> RDMA_TX_RSP: sender=1, receiver=6 => 14'b0000_0001_0110_00 = 14'h0058
-    // Note: Using RDMA_TX_RSP (port 6) for RDMA write responses, not RDMA_TX_REQ (port 5)
-    localparam logic [13:0] HARDCODED_ROUTE_VFPGA0 = 14'h0004;  // Route to vFPGA 1
-    localparam logic [13:0] HARDCODED_ROUTE_VFPGA1 = 14'h0058;  // Route to RDMA_TX_RSP (port 6)
+    assign rdma_req_route_valid = 1'b1;  // Skip validation for testing
+`else
+    // Validate: check if route_ctrl allows sending to RDMA port
+    assign rdma_req_route_valid = (route_ctrl[5:2] == PORT_RDMA_TX_REQ) ||   // Explicit RDMA REQ allowed
+                                  (route_ctrl[5:2] == 4'b0000);               // Any destination allowed
+`endif
+
+    assign m_axis_rdma_req.tvalid = s_axis_rdma_req.tvalid & rdma_req_route_valid;
+    assign m_axis_rdma_req.tdata  = s_axis_rdma_req.tdata;
+    assign m_axis_rdma_req.tkeep  = s_axis_rdma_req.tkeep;
+    assign m_axis_rdma_req.tlast  = s_axis_rdma_req.tlast;
+    assign m_axis_rdma_req.tid    = ID[PID_BITS-1:0];
+    assign m_axis_rdma_req.tdest  = build_route_id(PORT_RDMA_TX_REQ);  // Route to RDMA TX REQ port
+    assign s_axis_rdma_req.tready = m_axis_rdma_req.tready & rdma_req_route_valid;
+
+    // ========================================================================================
+    // PATH 3: RDMA TX RSP (vFPGA → RDMA stack read responses) - VALIDATED
+    // ========================================================================================
+    // RDMA RSP data must be validated - check if this vFPGA is allowed to send to RDMA.
+
+    logic rdma_rsp_route_valid;
+
+`ifdef HARDCODED_TEST_MODE
+    assign rdma_rsp_route_valid = 1'b1;  // Skip validation for testing
+`else
+    // Validate: check if route_ctrl allows sending to RDMA port
+    assign rdma_rsp_route_valid = (route_ctrl[5:2] == PORT_RDMA_TX_RSP) ||   // Explicit RDMA RSP allowed
+                                  (route_ctrl[5:2] == 4'b0000);               // Any destination allowed
+`endif
+
+    assign m_axis_rdma_rsp.tvalid = s_axis_rdma_rsp.tvalid & rdma_rsp_route_valid;
+    assign m_axis_rdma_rsp.tdata  = s_axis_rdma_rsp.tdata;
+    assign m_axis_rdma_rsp.tkeep  = s_axis_rdma_rsp.tkeep;
+    assign m_axis_rdma_rsp.tlast  = s_axis_rdma_rsp.tlast;
+    assign m_axis_rdma_rsp.tid    = ID[PID_BITS-1:0];
+    assign m_axis_rdma_rsp.tdest  = build_route_id(PORT_RDMA_TX_RSP);  // Route to RDMA TX RSP port
+    assign s_axis_rdma_rsp.tready = m_axis_rdma_rsp.tready & rdma_rsp_route_valid;
+
+    // ========================================================================================
+    // PATH 4: TCP TX (vFPGA → TCP stack) - VALIDATED
+    // ========================================================================================
+    // TCP data must be validated - check if this vFPGA is allowed to send to TCP.
+
+    logic tcp_route_valid;
+
+`ifdef HARDCODED_TEST_MODE
+    assign tcp_route_valid = 1'b1;  // Skip validation for testing
+`else
+    // Validate: check if route_ctrl allows sending to TCP port
+    assign tcp_route_valid = (route_ctrl[5:2] == PORT_TCP) ||     // Explicit TCP allowed
+                             (route_ctrl[5:2] == 4'b0000);         // Any destination allowed
+`endif
+
+    assign m_axis_tcp.tvalid = s_axis_tcp.tvalid & tcp_route_valid;
+    assign m_axis_tcp.tdata  = s_axis_tcp.tdata;
+    assign m_axis_tcp.tkeep  = s_axis_tcp.tkeep;
+    assign m_axis_tcp.tlast  = s_axis_tcp.tlast;
+    assign m_axis_tcp.tid    = ID[PID_BITS-1:0];
+    assign m_axis_tcp.tdest  = build_route_id(PORT_TCP);  // Route to TCP
+    assign s_axis_tcp.tready = m_axis_tcp.tready & tcp_route_valid;
+
+    // ========================================================================================
+    // PATH 5: BYPASS TX (vFPGA → Bypass stack) - VALIDATED
+    // ========================================================================================
+    // Bypass data must be validated - check if this vFPGA is allowed to send to Bypass.
+
+    logic bypass_route_valid;
+
+`ifdef HARDCODED_TEST_MODE
+    assign bypass_route_valid = 1'b1;  // Skip validation for testing
+`else
+    // Validate: check if route_ctrl allows sending to Bypass port
+    assign bypass_route_valid = (route_ctrl[5:2] == PORT_BYPASS_TX) ||  // Explicit Bypass allowed
+                                (route_ctrl[5:2] == 4'b0000);            // Any destination allowed
+`endif
+
+    assign m_axis_bypass.tvalid = s_axis_bypass.tvalid & bypass_route_valid;
+    assign m_axis_bypass.tdata  = s_axis_bypass.tdata;
+    assign m_axis_bypass.tkeep  = s_axis_bypass.tkeep;
+    assign m_axis_bypass.tlast  = s_axis_bypass.tlast;
+    assign m_axis_bypass.tid    = ID[PID_BITS-1:0];
+    assign m_axis_bypass.tdest  = build_route_id(PORT_BYPASS_TX);  // Route to Bypass
+    assign s_axis_bypass.tready = m_axis_bypass.tready & bypass_route_valid;
+
+    // ========================================================================================
+    // PATH 6: P2P TX (vFPGA → Another vFPGA) - VALIDATED
+    // ========================================================================================
+    // P2P data must be validated - check if this vFPGA is allowed to send to target vFPGA.
+    // The target vFPGA ID comes from route_ctrl (single destination capability per vFIU).
+
+    logic [3:0] p2p_target_vfpga;
+    logic       p2p_route_valid;
+
+    // Get target vFPGA from route_ctrl (vFIU stores single destination capability)
+    // route_ctrl[5:2] = receiver_id (the target vFPGA)
+    assign p2p_target_vfpga = route_ctrl[5:2];
+
+`ifdef HARDCODED_TEST_MODE
+    assign p2p_route_valid = 1'b1;  // Skip validation for testing
+`else
+    // Validate: target vFPGA must be valid (not self, not out of range)
+    // route_ctrl[5:2] already contains the allowed target, so we just verify it's valid
+    assign p2p_route_valid = is_valid_vfpga(p2p_target_vfpga);
+`endif
+
+    assign m_axis_p2p.tvalid = s_axis_p2p.tvalid & p2p_route_valid;
+    assign m_axis_p2p.tdata  = s_axis_p2p.tdata;
+    assign m_axis_p2p.tkeep  = s_axis_p2p.tkeep;
+    assign m_axis_p2p.tlast  = s_axis_p2p.tlast;
+    assign m_axis_p2p.tid    = ID[PID_BITS-1:0];
+    // Build route_id: sender = this vFPGA, receiver = target vFPGA
+    assign m_axis_p2p.tdest  = build_route_id(p2p_target_vfpga);
+    assign s_axis_p2p.tready = m_axis_p2p.tready & p2p_route_valid;
+
+    // ========================================================================================
+    // OVERALL ROUTE VALIDATION STATUS
+    // ========================================================================================
+    // Aggregate validation status for external monitoring
+    // This indicates if ANY path has valid data that passed validation
 
     always_ff @(posedge aclk) begin
         if (~aresetn) begin
-            route_out <= '0;
+            route_valid <= 1'b0;
         end else begin
-            // Select hardcoded route based on this vFPGA's ID
-            case (ID)
-                0: route_out <= HARDCODED_ROUTE_VFPGA0;
-                1: route_out <= HARDCODED_ROUTE_VFPGA1;
-                default: route_out <= '0;
-            endcase
+            // Route is valid if any validated path has valid data
+            route_valid <= (s_axis_rdma_req.tvalid & rdma_req_route_valid) |
+                          (s_axis_rdma_rsp.tvalid & rdma_rsp_route_valid) |
+                          (s_axis_tcp.tvalid & tcp_route_valid) |
+                          (s_axis_bypass.tvalid & bypass_route_valid) |
+                          (s_axis_p2p.tvalid & p2p_route_valid) |
+                          s_axis_host.tvalid;  // Host always valid (bypass)
         end
     end
-`else
-    always_ff @(posedge aclk) begin
-        if (~aresetn) begin
-            route_out <= '0;
-        end else begin
-            route_out <= route_ctrl;
-        end
-    end
-`endif
 
 endmodule
